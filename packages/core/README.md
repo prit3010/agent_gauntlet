@@ -16,7 +16,7 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout --validation-id val-demo-001
-uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass
+uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass --promotion-id prom-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
 uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-data --out data/dashboard/demo-data.json
 ```
@@ -34,6 +34,8 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 `train` writes `data/training/<training_id>/training.json`.
 
 `validate` writes `data/validations/<validation_id>/validation.json`.
+
+`promote` writes `data/promotions/<promotion_id>/promotion.json`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
@@ -86,6 +88,13 @@ data/validations/<validation_id>/validation.json
 
 `promote` selects the safest candidate and marks it as the next accepted
 harness version. In the demo, Candidate C becomes `v2`.
+
+Promotion records validate against `contracts/promotion_record.schema.json` and
+are stored as:
+
+```text
+data/promotions/<promotion_id>/promotion.json
+```
 
 ## LLM Boundary
 

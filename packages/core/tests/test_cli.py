@@ -62,7 +62,7 @@ class ParserTest(unittest.TestCase):
                 "gpt-5",
             ],
             ["validate", "--heldout", "--validation-id", "val-demo-001"],
-            ["promote", "--if-pass"],
+            ["promote", "--if-pass", "--promotion-id", "prom-demo-001"],
             ["export", "--target", "codex"],
             ["demo-data"],
             ["history"],
@@ -473,7 +473,24 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(validation_record["scope"], "heldout")
             self.assertEqual(validation_record["bestCandidate"], "C")
             self.assertTrue(validation_record["gateResults"]["C"]["passes"])
-        promote = capture_stdout(cli.cmd_promote, argparse.Namespace(if_pass=True))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            promotion_root = Path(temp_dir) / "promotions"
+            promote = capture_stdout(
+                cli.cmd_promote,
+                argparse.Namespace(
+                    if_pass=True,
+                    promotion_id="prom-demo-001",
+                    output_root=str(promotion_root),
+                ),
+            )
+            promotion_path = promotion_root / "prom-demo-001" / "promotion.json"
+            promotion_record = json.loads(promotion_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(promotion_path.exists())
+            self.assertEqual(promotion_record["promotionId"], "prom-demo-001")
+            self.assertEqual(promotion_record["promotedCandidate"], "C")
+            self.assertEqual(promotion_record["promotedHarnessVersion"], "v2")
+            self.assertTrue(promotion_record["gatePassed"])
 
         self.assertIn("LLM patch generator: openai/gpt-5", train)
         self.assertIn("Candidate A", train)
@@ -490,6 +507,7 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Promotion decision: deterministic gate", promote)
         self.assertIn("Promotion gate passed", promote)
         self.assertIn("New accepted harness: v2", promote)
+        self.assertIn("Wrote promotion record", promote)
 
     def test_demo_data_and_export_write_requested_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -598,6 +616,17 @@ class ContractShapeTest(unittest.TestCase):
         data = cli.load_demo_data()
         record = cli.build_validation_record(
             argparse.Namespace(heldout=True, validation_id="val-schema-001"),
+            data,
+        )
+
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(record)
+
+    def test_promotion_record_validates_against_schema(self) -> None:
+        schema = json.loads(cli.PROMOTION_RECORD_SCHEMA.read_text(encoding="utf-8"))
+        data = cli.load_demo_data()
+        record = cli.build_promotion_record(
+            argparse.Namespace(if_pass=True, promotion_id="prom-schema-001"),
             data,
         )
 

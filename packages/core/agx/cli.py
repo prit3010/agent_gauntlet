@@ -18,6 +18,7 @@ RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
 GENERATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "generation_record.schema.json"
 TRAINING_RECORD_SCHEMA = REPO_ROOT / "contracts" / "training_record.schema.json"
 VALIDATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "validation_record.schema.json"
+PROMOTION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "promotion_record.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
@@ -25,6 +26,7 @@ DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "runs"
 DEFAULT_GENERATIONS_ROOT = REPO_ROOT / "data" / "generations"
 DEFAULT_TRAINING_ROOT = REPO_ROOT / "data" / "training"
 DEFAULT_VALIDATIONS_ROOT = REPO_ROOT / "data" / "validations"
+DEFAULT_PROMOTIONS_ROOT = REPO_ROOT / "data" / "promotions"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -278,6 +280,10 @@ def _default_validation_id() -> str:
     return datetime.now(UTC).strftime("val-%Y%m%d%H%M%SZ")
 
 
+def _default_promotion_id() -> str:
+    return datetime.now(UTC).strftime("prom-%Y%m%d%H%M%SZ")
+
+
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     agent_config = load_agent_config(getattr(args, "agent_config", None))
@@ -416,6 +422,36 @@ def write_validation_record(record: dict[str, Any], output_root: Path) -> Path:
     validation_dir.mkdir(parents=True, exist_ok=True)
     validate_json_schema(record, VALIDATION_RECORD_SCHEMA)
     output = validation_dir / "validation.json"
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
+def build_promotion_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
+    promotion_id = getattr(args, "promotion_id", None) or _default_promotion_id()
+    report = data["promotionReport"]
+    gate_results = evaluate_candidate_gates(data)
+    promoted_id = report["promotedCandidate"]
+    promoted = next(patch for patch in data["candidatePatches"] if patch["id"] == promoted_id)
+    return {
+        "promotionId": promotion_id,
+        "createdAt": datetime.now(UTC).isoformat(),
+        "promotedCandidate": promoted_id,
+        "promotedHarnessVersion": report["promotedHarnessVersion"],
+        "candidateHarnessVersion": promoted["candidateHarnessVersion"],
+        "patchType": promoted["patchType"],
+        "validationScore": promoted["validationScore"],
+        "gatePassed": gate_results[promoted_id]["passes"],
+        "decision": "deterministic_gate",
+        "whyPromoted": report["whyPromoted"],
+        "status": "fixture_backed_interface",
+    }
+
+
+def write_promotion_record(record: dict[str, Any], output_root: Path) -> Path:
+    promotion_dir = output_root / record["promotionId"]
+    promotion_dir.mkdir(parents=True, exist_ok=True)
+    validate_json_schema(record, PROMOTION_RECORD_SCHEMA)
+    output = promotion_dir / "promotion.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
 
@@ -584,6 +620,9 @@ def cmd_promote(args: argparse.Namespace) -> None:
     gate_results = evaluate_candidate_gates(data)
     promoted_id = report["promotedCandidate"]
     promoted = next(patch for patch in data["candidatePatches"] if patch["id"] == promoted_id)
+    record = build_promotion_record(args, data)
+    output_root = Path(getattr(args, "output_root", DEFAULT_PROMOTIONS_ROOT))
+    output = write_promotion_record(record, output_root)
     print(f"Promoted candidate: {promoted_id}")
     print(f"New accepted harness: {report['promotedHarnessVersion']}")
     print(f"Patch type: {promoted['patchType']}")
@@ -593,6 +632,7 @@ def cmd_promote(args: argparse.Namespace) -> None:
         print(f"- {reason}")
     if args.if_pass and gate_results[promoted_id]["passes"]:
         print("Promotion gate passed.")
+    print(f"Wrote promotion record to {output}")
 
 
 def cmd_export(args: argparse.Namespace) -> None:
@@ -701,6 +741,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote = subparsers.add_parser("promote", help="Promote the best candidate if gate checks pass.")
     promote.add_argument("--if-pass", action="store_true")
+    promote.add_argument("--promotion-id", default=None)
+    promote.add_argument("--output-root", default=str(DEFAULT_PROMOTIONS_ROOT))
     promote.set_defaults(func=cmd_promote)
 
     export = subparsers.add_parser("export", help="Export promoted harness artifacts.")

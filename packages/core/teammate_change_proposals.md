@@ -89,6 +89,16 @@ That record validates against `contracts/validation_record.schema.json` and
 captures scope, best candidate, validation score, and per-candidate gate
 results.
 
+`agx promote` writes the accepted harness decision:
+
+```text
+data/promotions/<promotion_id>/promotion.json
+```
+
+That record validates against `contracts/promotion_record.schema.json` and
+captures the promoted candidate, candidate harness version, accepted harness
+version, deterministic gate decision, and promotion rationale.
+
 The live system should use LLM calls for:
 
 - `generate`: propose new private scenarios/test cases
