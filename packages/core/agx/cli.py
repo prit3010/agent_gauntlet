@@ -277,9 +277,27 @@ def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[
 def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
     run_dir = runs_root / record["runId"]
     run_dir.mkdir(parents=True, exist_ok=True)
+    _import_file_output_log(record, run_dir)
     output = run_dir / "run.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
+
+
+def _import_file_output_log(record: dict[str, Any], run_dir: Path) -> None:
+    file_output = record["logs"]["file_output"]
+    configured_path = Path(file_output["path"])
+    source = configured_path if configured_path.is_absolute() else Path(record["targetAgent"]["repoPath"]) / configured_path
+    file_output["imported"] = False
+    file_output["imported_path"] = None
+    if not source.exists():
+        return
+
+    relative_output = Path("logs") / "file-output.jsonl"
+    output = run_dir / relative_output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, output)
+    file_output["imported"] = True
+    file_output["imported_path"] = str(relative_output).replace("\\", "/")
 
 
 def iter_run_records(runs_root: Path) -> list[dict[str, Any]]:
@@ -344,6 +362,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         record = build_run_record(args, data, pack)
         output = write_run_record(record, runs_root)
         print(f"Wrote run record to {output}")
+        if record["logs"]["file_output"]["imported"]:
+            print(f"Imported file-output log to {record['logs']['file_output']['imported_path']}")
 
 
 def cmd_trace(args: argparse.Namespace) -> None:

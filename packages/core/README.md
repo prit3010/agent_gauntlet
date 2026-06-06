@@ -75,6 +75,14 @@ The required log contract is:
 
 `init --config-out data/agent-configs/sample-agent-gauntlet.json` writes a starter config without modifying the target repo.
 
+When `run` writes a history record, it resolves `logs.file_output.path`
+relative to the configured target-agent repo. If the file exists, core imports
+it into the run folder:
+
+```text
+data/runs/<run_id>/logs/file-output.jsonl
+```
+
 ## Data Contract
 
 `contracts/dashboard_data.schema.json` is the source of truth for teammate 3 dashboard data. The canonical fixture is `contracts/sample_dashboard_data.json`.

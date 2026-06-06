@@ -259,6 +259,43 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("Run: run-demo-001", show_output)
             self.assertIn("Harness: v1", show_output)
 
+    def test_run_imports_configured_file_output_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            agent_repo = temp_path / "agent"
+            source_log = agent_repo / ".agx" / "logs" / "file-output.jsonl"
+            runs_root = temp_path / "runs"
+            config_path = temp_path / "agent-gauntlet.json"
+
+            source_log.parent.mkdir(parents=True)
+            source_log.write_text(
+                '{"event":"write","path":"src/app/models.py"}\n',
+                encoding="utf-8",
+            )
+            config = cli.build_default_agent_config(agent_repo.resolve())
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+            run_output = capture_stdout(
+                cli.cmd_run,
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=12,
+                    round="baseline",
+                    run_id="run-with-log",
+                    runs_root=str(runs_root),
+                    agent_config=str(config_path),
+                ),
+            )
+
+            imported_log = runs_root / "run-with-log" / "logs" / "file-output.jsonl"
+            run_record = json.loads((runs_root / "run-with-log" / "run.json").read_text(encoding="utf-8"))
+
+            self.assertTrue(imported_log.exists())
+            self.assertEqual(imported_log.read_text(encoding="utf-8"), source_log.read_text(encoding="utf-8"))
+            self.assertTrue(run_record["logs"]["file_output"]["imported"])
+            self.assertEqual(run_record["logs"]["file_output"]["imported_path"], "logs/file-output.jsonl")
+            self.assertIn("Imported file-output log", run_output)
+
     def test_trace_replays_required_critical_story(self) -> None:
         output = capture_stdout(
             cli.cmd_trace,
