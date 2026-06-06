@@ -1,12 +1,16 @@
 # Sample Migration Agent Target
 
-Owner: Teammate 2.
+Owner: Teammate 2
 
-This is the demo target repo for Migration Pilot. It should model a small FastAPI/Pydantic v1 codebase that must be migrated to Pydantic v2 without breaking public behavior.
+This local sample repo models a small FastAPI/Pydantic codebase for a Pydantic v2 migration agent. The scenario is intentionally narrow: preserve public JSON aliases, validation errors, and payment semantics while changing migration syntax.
 
-The key demo failure:
+Public responses must keep `user_id`, `full_name`, and `order_id` contract fields. Internal fields such as `id` and `name` must not leak into API output.
 
-```text
-The migration agent updates syntax, breaks public API aliases, weakens the failing test, and claims completion.
+Run the focused sample tests from this directory:
+
+```bash
+PYTHONPATH=src pytest tests/test_api_contract.py -q
+PYTHONPATH=src pytest tests/test_validation_errors.py -q
+PYTHONPATH=src pytest tests/test_payments.py -q
+PYTHONPATH=src pytest tests/test_api_contract.py tests/test_validation_errors.py tests/test_payments.py -q
 ```
-

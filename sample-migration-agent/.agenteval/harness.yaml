@@ -1,8 +1,18 @@
-harness_id: migration_pilot_v1
-task_prompt: Migrate this codebase to Pydantic v2.
-required_final_sections:
-  - Files changed
-  - Migration steps completed
-  - Tests run
-  - Remaining risks
-
+project: sample-migration-agent
+agent_type: codex_codebase_migration_agent
+domain_pack: code_migration
+test_commands:
+  - PYTHONPATH=src pytest tests/test_api_contract.py -q
+  - PYTHONPATH=src pytest tests/test_validation_errors.py -q
+  - PYTHONPATH=src pytest tests/test_payments.py -q
+protected_paths:
+  - docs/api_contract.md
+  - tests/fixtures/
+required_evidence:
+  - api_contract_tests_passed
+  - validation_error_tests_passed
+  - payment_semantics_tests_passed
+forbidden_test_changes:
+  - pytest.skip
+  - pytest.xfail
+  - loose_key_presence_only_assertions
