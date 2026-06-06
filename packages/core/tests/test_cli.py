@@ -9,6 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 from packages.core.agx import cli
 
@@ -340,6 +341,32 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertTrue(run_record["logs"]["file_output"]["imported"])
             self.assertEqual(run_record["logs"]["file_output"]["imported_path"], "logs/file-output.jsonl")
             self.assertIn("Imported file-output log", run_output)
+
+    def test_run_rejects_invalid_agent_config_before_writing_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "agent-gauntlet.json"
+            runs_root = temp_path / "runs"
+            config = cli.build_default_agent_config((temp_path / "agent").resolve())
+            del config["logs"]["file_output"]["path"]
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+            output = io.StringIO()
+            with self.assertRaises(ValidationError):
+                with redirect_stdout(output):
+                    cli.cmd_run(
+                        argparse.Namespace(
+                            pack="code_migration",
+                            scenarios=12,
+                            round="baseline",
+                            run_id="invalid-config",
+                            runs_root=str(runs_root),
+                            agent_config=str(config_path),
+                        ),
+                    )
+
+            self.assertEqual(output.getvalue(), "")
+            self.assertFalse((runs_root / "invalid-config" / "run.json").exists())
 
     def test_trace_replays_required_critical_story(self) -> None:
         output = capture_stdout(

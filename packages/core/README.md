@@ -90,6 +90,8 @@ data/runs/<run_id>/run.json
 ```
 
 and validate against `contracts/run_record.schema.json`.
+The CLI validates agent configs and run records against their schemas before
+writing history data.
 
 History commands:
 

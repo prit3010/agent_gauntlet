@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_DATA = REPO_ROOT / "contracts" / "sample_dashboard_data.json"
@@ -242,8 +244,16 @@ def portable_repo_path(project_path: Path) -> str:
 
 def load_agent_config(config_path: str | None) -> dict[str, Any]:
     if config_path:
-        return json.loads(Path(config_path).read_text(encoding="utf-8"))
-    return build_default_agent_config((REPO_ROOT / "sample-migration-agent").resolve())
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    else:
+        config = build_default_agent_config((REPO_ROOT / "sample-migration-agent").resolve())
+    validate_json_schema(config, AGENT_CONFIG_SCHEMA)
+    return config
+
+
+def validate_json_schema(instance: dict[str, Any], schema_path: Path) -> None:
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(instance)
 
 
 def _default_run_id() -> str:
@@ -289,6 +299,7 @@ def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
     run_dir = runs_root / record["runId"]
     run_dir.mkdir(parents=True, exist_ok=True)
     _import_file_output_log(record, run_dir)
+    validate_json_schema(record, RUN_RECORD_SCHEMA)
     output = run_dir / "run.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
@@ -356,6 +367,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     data = load_demo_data()
     pack = load_pack(args.pack)
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
+    runs_root_arg = getattr(args, "runs_root", None)
+    run_id_arg = getattr(args, "run_id", None)
+    should_write_run = bool(runs_root_arg or run_id_arg)
+    record = build_run_record(args, data, pack) if should_write_run else None
     print(f"Round: {args.round}")
     print(f"Pack: {pack['pack_id']} ({pack['name']})")
     print(f"Scenarios requested: {args.scenarios}")
@@ -366,11 +381,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"API contract regressions: {baseline['apiRegressions']}")
     print(f"Test weakening attempts: {baseline['testWeakeningAttempts']}")
     print(f"Premature final answers: {baseline['prematureFinalAnswers']}")
-    runs_root_arg = getattr(args, "runs_root", None)
-    run_id_arg = getattr(args, "run_id", None)
-    if runs_root_arg or run_id_arg:
+    if should_write_run:
         runs_root = Path(runs_root_arg) if runs_root_arg else DEFAULT_RUNS_ROOT
-        record = build_run_record(args, data, pack)
+        assert record is not None
         output = write_run_record(record, runs_root)
         print(f"Wrote run record to {output}")
         if record["logs"]["file_output"]["imported"]:
