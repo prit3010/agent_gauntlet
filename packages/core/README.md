@@ -11,7 +11,7 @@ Run commands from the repo root:
 ```bash
 uv run --python 3.12 --group dev python -m packages.core.agx.cli init ./sample-migration-agent
 uv run --python 3.12 --group dev python -m packages.core.agx.cli scan
-uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --llm-provider openai --llm-model gpt-5
+uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --generation-id gen-demo-001 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --llm-provider openai --llm-model gpt-5
@@ -29,6 +29,8 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 `demo-data` copies `contracts/sample_dashboard_data.json` to the requested output. The dashboard-facing default path is `apps/dashboard/public/demo-data.json`, but teammate 1 verification should use `--out data/dashboard/demo-data.json` to avoid editing outside owned paths.
 
+`generate` writes `data/generations/<generation_id>/generation.json`.
+
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
 ## Harness Version Flow
@@ -45,6 +47,13 @@ call yet. For the current demo, generated scenarios are represented by fixed
 teammate 2 fixtures under `packs/code_migration/scenarios/**`. Once teammate 2's
 sample generated test cases define the scenario shape, this command should write
 generated scenario records through that contract.
+
+Generation records validate against `contracts/generation_record.schema.json`
+and are stored as:
+
+```text
+data/generations/<generation_id>/generation.json
+```
 
 `run` evaluates a harness version. `train` creates candidate variants from the
 current accepted harness. It also accepts `--llm-provider` and `--llm-model` as

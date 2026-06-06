@@ -47,7 +47,7 @@ class ParserTest(unittest.TestCase):
         examples = [
             ["init", "./sample-migration-agent"],
             ["scan"],
-            ["generate", "--pack", "code_migration", "--scenarios", "3"],
+            ["generate", "--pack", "code_migration", "--scenarios", "3", "--generation-id", "gen-demo-001"],
             ["run", "--pack", "code_migration", "--scenarios", "12", "--round", "baseline"],
             ["trace", "pydantic_alias_regression_001"],
             ["train", "--candidates", "3", "--llm-provider", "openai", "--llm-model", "gpt-5"],
@@ -223,20 +223,36 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Critical failures: 4", output)
 
     def test_generate_declares_llm_scenario_generation_boundary(self) -> None:
-        output = capture_stdout(
-            cli.cmd_generate,
-            argparse.Namespace(
-                pack="code_migration",
-                scenarios=3,
-                llm_provider="openai",
-                llm_model="gpt-5",
-            ),
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "generations"
 
-        self.assertIn("LLM scenario generator: openai/gpt-5", output)
-        self.assertIn("Scenarios requested: 3", output)
-        self.assertIn("teammate 2 scenario contract", output)
-        self.assertIn("No live LLM call is made by this demo core", output)
+            output = capture_stdout(
+                cli.cmd_generate,
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=3,
+                    generation_id="gen-demo-001",
+                    output_root=str(output_root),
+                    llm_provider="openai",
+                    llm_model="gpt-5",
+                ),
+            )
+
+            generation_path = output_root / "gen-demo-001" / "generation.json"
+            generation_record = json.loads(generation_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(generation_path.exists())
+            self.assertEqual(generation_record["generationId"], "gen-demo-001")
+            self.assertEqual(generation_record["llm"]["provider"], "openai")
+            self.assertEqual(generation_record["llm"]["model"], "gpt-5")
+            self.assertEqual(generation_record["pack"]["id"], "code_migration")
+            self.assertEqual(generation_record["request"]["scenarios"], 3)
+            self.assertIn("scenarios/pydantic_alias_regression_001.yaml", generation_record["fixtureScenarios"])
+            self.assertIn("LLM scenario generator: openai/gpt-5", output)
+            self.assertIn("Scenarios requested: 3", output)
+            self.assertIn("teammate 2 scenario contract", output)
+            self.assertIn("No live LLM call is made by this demo core", output)
+            self.assertIn("Wrote generation record", output)
 
     def test_run_writes_history_record_and_history_commands_read_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -492,6 +508,23 @@ class ContractShapeTest(unittest.TestCase):
                 agent_config=None,
             ),
             data,
+            pack,
+        )
+
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(record)
+
+    def test_generation_record_validates_against_schema(self) -> None:
+        schema = json.loads(cli.GENERATION_RECORD_SCHEMA.read_text(encoding="utf-8"))
+        pack = cli.load_pack("code_migration")
+        record = cli.build_generation_record(
+            argparse.Namespace(
+                pack="code_migration",
+                scenarios=3,
+                generation_id="gen-schema-001",
+                llm_provider="openai",
+                llm_model="gpt-5",
+            ),
             pack,
         )
 

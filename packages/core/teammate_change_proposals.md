@@ -59,6 +59,16 @@ For now, generated scenarios are represented by fixed teammate 2 fixtures under
 cases land, `agx generate` should write generated scenario records through the
 pack/scenario contract.
 
+Current persisted placeholder:
+
+```text
+data/generations/<generation_id>/generation.json
+```
+
+The placeholder validates against `contracts/generation_record.schema.json` and
+records provider/model, requested scenario count, pack identity, fixture
+scenarios, and the teammate 2 scenario contract path.
+
 The live system should use LLM calls for:
 
 - `generate`: propose new private scenarios/test cases

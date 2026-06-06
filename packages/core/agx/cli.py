@@ -15,10 +15,12 @@ CONTRACT_DATA = REPO_ROOT / "contracts" / "sample_dashboard_data.json"
 SCHEMA_DATA = REPO_ROOT / "contracts" / "dashboard_data.schema.json"
 AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
 RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
+GENERATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "generation_record.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
 DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "runs"
+DEFAULT_GENERATIONS_ROOT = REPO_ROOT / "data" / "generations"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -260,6 +262,10 @@ def _default_run_id() -> str:
     return datetime.now(UTC).strftime("run-%Y%m%d%H%M%SZ")
 
 
+def _default_generation_id() -> str:
+    return datetime.now(UTC).strftime("gen-%Y%m%d%H%M%SZ")
+
+
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     agent_config = load_agent_config(getattr(args, "agent_config", None))
@@ -301,6 +307,38 @@ def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
     _import_file_output_log(record, run_dir)
     validate_json_schema(record, RUN_RECORD_SCHEMA)
     output = run_dir / "run.json"
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
+def build_generation_record(args: argparse.Namespace, pack: dict[str, Any]) -> dict[str, Any]:
+    generation_id = getattr(args, "generation_id", None) or _default_generation_id()
+    return {
+        "generationId": generation_id,
+        "createdAt": datetime.now(UTC).isoformat(),
+        "llm": {
+            "provider": args.llm_provider,
+            "model": args.llm_model,
+            "liveCall": False,
+        },
+        "pack": {
+            "id": pack["pack_id"],
+            "name": pack["name"],
+        },
+        "request": {
+            "scenarios": args.scenarios,
+        },
+        "scenarioContract": f"{pack['pack_path']}/scenarios",
+        "fixtureScenarios": pack.get("scenarios", []),
+        "status": "fixture_backed_interface",
+    }
+
+
+def write_generation_record(record: dict[str, Any], output_root: Path) -> Path:
+    generation_dir = output_root / record["generationId"]
+    generation_dir.mkdir(parents=True, exist_ok=True)
+    validate_json_schema(record, GENERATION_RECORD_SCHEMA)
+    output = generation_dir / "generation.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
 
@@ -396,11 +434,15 @@ def _llm_label(args: argparse.Namespace) -> str:
 
 def cmd_generate(args: argparse.Namespace) -> None:
     pack = load_pack(args.pack)
+    record = build_generation_record(args, pack)
+    output_root = Path(getattr(args, "output_root", DEFAULT_GENERATIONS_ROOT))
+    output = write_generation_record(record, output_root)
     print(f"LLM scenario generator: {_llm_label(args)}")
     print(f"Pack: {pack['pack_id']} ({pack['name']})")
     print(f"Scenarios requested: {args.scenarios}")
     print(f"Output contract: teammate 2 scenario contract under {pack['pack_path']}/scenarios")
     print("No live LLM call is made by this demo core; provider/model configure the future executor.")
+    print(f"Wrote generation record to {output}")
 
 
 def cmd_trace(args: argparse.Namespace) -> None:
@@ -539,6 +581,8 @@ def build_parser() -> argparse.ArgumentParser:
     generate = subparsers.add_parser("generate", help="Generate candidate scenarios through the LLM boundary.")
     generate.add_argument("--pack", default="code_migration")
     generate.add_argument("--scenarios", type=int, default=3)
+    generate.add_argument("--generation-id", default=None)
+    generate.add_argument("--output-root", default=str(DEFAULT_GENERATIONS_ROOT))
     generate.add_argument("--llm-provider", default="fixture")
     generate.add_argument("--llm-model", default="demo-fixture")
     generate.set_defaults(func=cmd_generate)
