@@ -16,11 +16,13 @@ SCHEMA_DATA = REPO_ROOT / "contracts" / "dashboard_data.schema.json"
 AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
 RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
 GENERATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "generation_record.schema.json"
+TRAINING_RECORD_SCHEMA = REPO_ROOT / "contracts" / "training_record.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
 DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "runs"
 DEFAULT_GENERATIONS_ROOT = REPO_ROOT / "data" / "generations"
+DEFAULT_TRAINING_ROOT = REPO_ROOT / "data" / "training"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -266,6 +268,10 @@ def _default_generation_id() -> str:
     return datetime.now(UTC).strftime("gen-%Y%m%d%H%M%SZ")
 
 
+def _default_training_id() -> str:
+    return datetime.now(UTC).strftime("train-%Y%m%d%H%M%SZ")
+
+
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     agent_config = load_agent_config(getattr(args, "agent_config", None))
@@ -339,6 +345,47 @@ def write_generation_record(record: dict[str, Any], output_root: Path) -> Path:
     generation_dir.mkdir(parents=True, exist_ok=True)
     validate_json_schema(record, GENERATION_RECORD_SCHEMA)
     output = generation_dir / "generation.json"
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
+def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
+    training_id = getattr(args, "training_id", None) or _default_training_id()
+    candidates = data["candidatePatches"][: args.candidates]
+    return {
+        "trainingId": training_id,
+        "createdAt": datetime.now(UTC).isoformat(),
+        "llm": {
+            "provider": args.llm_provider,
+            "model": args.llm_model,
+            "liveCall": False,
+        },
+        "request": {
+            "candidates": args.candidates,
+        },
+        "baseHarnessVersion": "v1",
+        "candidates": [
+            {
+                "id": patch["id"],
+                "title": patch["title"],
+                "status": patch["status"],
+                "validationScore": patch["validationScore"],
+                "baseHarnessVersion": patch["baseHarnessVersion"],
+                "candidateHarnessVersion": patch["candidateHarnessVersion"],
+                "patchType": patch["patchType"],
+                "reason": patch["reason"],
+            }
+            for patch in candidates
+        ],
+        "status": "fixture_backed_interface",
+    }
+
+
+def write_training_record(record: dict[str, Any], output_root: Path) -> Path:
+    training_dir = output_root / record["trainingId"]
+    training_dir.mkdir(parents=True, exist_ok=True)
+    validate_json_schema(record, TRAINING_RECORD_SCHEMA)
+    output = training_dir / "training.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
 
@@ -468,6 +515,9 @@ def cmd_trace(args: argparse.Namespace) -> None:
 
 def cmd_train(args: argparse.Namespace) -> None:
     data = load_demo_data()
+    record = build_training_record(args, data)
+    output_root = Path(getattr(args, "output_root", DEFAULT_TRAINING_ROOT))
+    output = write_training_record(record, output_root)
     print(f"LLM patch generator: {_llm_label(args)}")
     print(f"Candidate harness patches from deterministic training runs ({args.candidates} requested)")
     for patch in data["candidatePatches"][: args.candidates]:
@@ -481,6 +531,7 @@ def cmd_train(args: argparse.Namespace) -> None:
         )
         print(f"  {patch['reason']}")
     print("Next step: validate --heldout")
+    print(f"Wrote training record to {output}")
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -602,6 +653,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     train = subparsers.add_parser("train", help="Show candidate harness patches from training runs.")
     train.add_argument("--candidates", type=int, default=3)
+    train.add_argument("--training-id", default=None)
+    train.add_argument("--output-root", default=str(DEFAULT_TRAINING_ROOT))
     train.add_argument("--llm-provider", default="fixture")
     train.add_argument("--llm-model", default="demo-fixture")
     train.set_defaults(func=cmd_train)

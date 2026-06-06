@@ -50,7 +50,17 @@ class ParserTest(unittest.TestCase):
             ["generate", "--pack", "code_migration", "--scenarios", "3", "--generation-id", "gen-demo-001"],
             ["run", "--pack", "code_migration", "--scenarios", "12", "--round", "baseline"],
             ["trace", "pydantic_alias_regression_001"],
-            ["train", "--candidates", "3", "--llm-provider", "openai", "--llm-model", "gpt-5"],
+            [
+                "train",
+                "--candidates",
+                "3",
+                "--training-id",
+                "train-demo-001",
+                "--llm-provider",
+                "openai",
+                "--llm-model",
+                "gpt-5",
+            ],
             ["validate", "--heldout"],
             ["promote", "--if-pass"],
             ["export", "--target", "codex"],
@@ -424,10 +434,27 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Agent Gauntlet flags the behavior", output)
 
     def test_train_validate_and_promote_show_candidate_c(self) -> None:
-        train = capture_stdout(
-            cli.cmd_train,
-            argparse.Namespace(candidates=3, llm_provider="openai", llm_model="gpt-5"),
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            training_root = Path(temp_dir) / "training"
+            train = capture_stdout(
+                cli.cmd_train,
+                argparse.Namespace(
+                    candidates=3,
+                    training_id="train-demo-001",
+                    output_root=str(training_root),
+                    llm_provider="openai",
+                    llm_model="gpt-5",
+                ),
+            )
+            training_path = training_root / "train-demo-001" / "training.json"
+            training_record = json.loads(training_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(training_path.exists())
+            self.assertEqual(training_record["trainingId"], "train-demo-001")
+            self.assertEqual(training_record["llm"]["provider"], "openai")
+            self.assertEqual(training_record["llm"]["model"], "gpt-5")
+            self.assertEqual(training_record["request"]["candidates"], 3)
+            self.assertEqual(training_record["candidates"][0]["candidateHarnessVersion"], "v1a")
         validate = capture_stdout(cli.cmd_validate, argparse.Namespace(heldout=True))
         promote = capture_stdout(cli.cmd_promote, argparse.Namespace(if_pass=True))
 
@@ -439,6 +466,7 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("v1 + Candidate C -> v1c", train)
         self.assertIn("rejected", train)
         self.assertIn("promoted", train)
+        self.assertIn("Wrote training record", train)
         self.assertIn("Held-out validation complete", validate)
         self.assertIn("Best candidate: C", validate)
         self.assertIn("Promotion decision: deterministic gate", promote)
@@ -526,6 +554,22 @@ class ContractShapeTest(unittest.TestCase):
                 llm_model="gpt-5",
             ),
             pack,
+        )
+
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(record)
+
+    def test_training_record_validates_against_schema(self) -> None:
+        schema = json.loads(cli.TRAINING_RECORD_SCHEMA.read_text(encoding="utf-8"))
+        data = cli.load_demo_data()
+        record = cli.build_training_record(
+            argparse.Namespace(
+                candidates=3,
+                training_id="train-schema-001",
+                llm_provider="openai",
+                llm_model="gpt-5",
+            ),
+            data,
         )
 
         Draft202012Validator.check_schema(schema)

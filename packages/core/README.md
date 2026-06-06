@@ -14,7 +14,7 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli scan
 uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --generation-id gen-demo-001 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
-uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --llm-provider openai --llm-model gpt-5
+uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
@@ -30,6 +30,8 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 `demo-data` copies `contracts/sample_dashboard_data.json` to the requested output. The dashboard-facing default path is `apps/dashboard/public/demo-data.json`, but teammate 1 verification should use `--out data/dashboard/demo-data.json` to avoid editing outside owned paths.
 
 `generate` writes `data/generations/<generation_id>/generation.json`.
+
+`train` writes `data/training/<training_id>/training.json`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
@@ -63,6 +65,13 @@ the future patch-generator interface:
 v1 + Candidate A -> v1a
 v1 + Candidate B -> v1b
 v1 + Candidate C -> v1c
+```
+
+Training records validate against `contracts/training_record.schema.json` and
+are stored as:
+
+```text
+data/training/<training_id>/training.json
 ```
 
 `promote` selects the safest candidate and marks it as the next accepted

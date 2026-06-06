@@ -69,6 +69,16 @@ The placeholder validates against `contracts/generation_record.schema.json` and
 records provider/model, requested scenario count, pack identity, fixture
 scenarios, and the teammate 2 scenario contract path.
 
+`agx train` now writes the matching placeholder:
+
+```text
+data/training/<training_id>/training.json
+```
+
+That record validates against `contracts/training_record.schema.json` and
+captures provider/model, requested candidate count, base harness version, and
+candidate lineage such as `v1 + Candidate C -> v1c`.
+
 The live system should use LLM calls for:
 
 - `generate`: propose new private scenarios/test cases
