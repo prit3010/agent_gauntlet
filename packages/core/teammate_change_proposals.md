@@ -120,10 +120,16 @@ Please plan for dashboard fields that show:
 - candidate lineage such as `v1 + Candidate C -> v1c`
 - promoted harness version such as `v1c -> v2`
 
-Future storage should group primary artifacts by meta run:
+Meta-run storage groups primary artifacts by meta run:
 
 ```text
 data/<meta_run_id>/
+```
+
+For the current fixture-backed CLI demo, this is nested under `data/demo-runs`:
+
+```text
+data/demo-runs/<meta_run_id>/
 ```
 
 For the single demo run, use a readable id such as

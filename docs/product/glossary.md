@@ -20,11 +20,17 @@ The demo command is `demo-meta-run`.
 
 ## Meta Run Storage
 
-Current demo artifacts are still written by artifact category under
-`data/demo-runs`. The intended next storage shape is grouped by meta run id:
+Meta-run artifacts are grouped by meta run id:
 
 ```text
 data/<meta_run_id>/
+```
+
+For the current fixture-backed CLI demo, the root is `data/demo-runs`, so the
+default shape is:
+
+```text
+data/demo-runs/<meta_run_id>/
 ```
 
 For the single demo flow, `<meta_run_id>` can be a simple readable id such as

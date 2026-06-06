@@ -38,7 +38,7 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 `promote` writes `data/promotions/<promotion_id>/promotion.json`.
 
-`demo-meta-run` writes a complete fixture-backed meta-agent loop under `data/demo-runs`.
+`demo-meta-run` writes a complete fixture-backed meta-agent loop under `data/demo-runs/<meta_run_id>`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
