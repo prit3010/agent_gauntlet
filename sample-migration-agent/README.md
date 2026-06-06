@@ -27,10 +27,24 @@ Or run it directly from this directory:
 ./run_sample_migration.py
 ```
 
-The script loads the local migration skills, builds a context map, creates a migration map, and checks the sample invariants. It can also inspect another project:
+The script is shaped like an uploaded Codex migration agent. `agentgauntlet.yaml` declares how Agent Gauntlet should invoke it, while the script loads local migration skills, builds a context map, creates a migration map, calls an LLM provider, writes an agent-owned event log, and checks the sample invariants.
+
+Agent Gauntlet renders the generic command from `agentgauntlet.yaml` by filling in the target project, task, provider, and test flag:
 
 ```bash
-python3 sample-migration-agent/run_sample_migration.py --project /path/to/project --task "Migrate to Pydantic v2"
+python3 run_sample_migration.py --project /path/to/project --task "Migrate to Pydantic v2" --provider codex --run-tests
 ```
 
-Add `--run-tests` to run discovered harness test commands after planning.
+For local verification without network or SDK credentials, use the deterministic provider:
+
+```bash
+python3 sample-migration-agent/run_sample_migration.py --provider offline --run-tests
+```
+
+Provider modes:
+
+- `offline`: deterministic local provider used by tests.
+- `codex`: calls the configured Codex SDK command from `CODEX_SDK_COMMAND`.
+- `openai`: calls the OpenAI Responses API with `OPENAI_API_KEY`.
+
+The agent writes JSONL telemetry to `.agentgauntlet/runs/<run_id>/agent-events.jsonl` by default. These are agent-claimed events such as `skill_used`, `llm_request`, `llm_response`, `patch_proposed`, and `tests_finished`; Agent Gauntlet should still independently capture stdout, stderr, diffs, exit code, and test output.

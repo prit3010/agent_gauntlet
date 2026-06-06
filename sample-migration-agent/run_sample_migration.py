@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -12,6 +13,8 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib import error, request
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -20,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_ROOT = PROJECT_ROOT / "src"
 SKILL_ROOT = PROJECT_ROOT / ".codex" / "skills"
 DEFAULT_TASK = "Migrate this project to Pydantic v2 without changing public behavior."
+DEFAULT_MODEL = "gpt-4.1-mini"
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -32,6 +36,10 @@ with warnings.catch_warnings():
 
 
 class CheckFailed(AssertionError):
+    pass
+
+
+class ProviderConfigurationError(RuntimeError):
     pass
 
 
@@ -66,6 +74,57 @@ def load_migration_skills(skill_root: Path = SKILL_ROOT) -> list[dict[str, str]]
             }
         )
     return skills
+
+
+def load_runtime_contract(path: Path) -> dict[str, Any]:
+    contract: dict[str, Any] = {
+        "entrypoint": {"command": []},
+        "inputs": {},
+        "providers": {},
+        "logging": {},
+    }
+    section: str | None = None
+    subsection: str | None = None
+
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not raw_line.startswith(" "):
+            section = stripped.removesuffix(":")
+            subsection = None
+            if ":" in stripped and not stripped.endswith(":"):
+                key, value = stripped.split(":", 1)
+                contract[key.strip()] = value.strip()
+            continue
+        if section == "entrypoint":
+            if stripped == "command:":
+                subsection = "command"
+                continue
+            if subsection == "command" and stripped.startswith("- "):
+                contract["entrypoint"]["command"].append(stripped.removeprefix("- ").strip())
+        elif section in {"inputs", "providers", "logging"} and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            contract[section][key.strip()] = value.strip().strip('"')
+    return contract
+
+
+def render_invocation_command(
+    manifest: dict[str, Any],
+    project_path: Path,
+    task: str,
+    provider: str,
+    run_tests: bool,
+) -> list[str]:
+    command = list(manifest["entrypoint"]["command"])
+    inputs = manifest["inputs"]
+    command.extend([inputs["project_arg"], project_path.as_posix()])
+    command.extend([inputs["task_arg"], task])
+    command.extend([inputs["provider_arg"], provider])
+    if run_tests:
+        command.append(inputs["run_tests_arg"])
+    return command
 
 
 def discover_files(project_path: Path, patterns: tuple[str, ...]) -> list[str]:
@@ -174,6 +233,116 @@ def build_skill_calls(skills: list[dict[str, str]], migration_map: dict[str, Any
     return calls
 
 
+def default_event_log_path(project_path: Path, run_id: str) -> Path:
+    return project_path / ".agentgauntlet" / "runs" / run_id / "agent-events.jsonl"
+
+
+def append_event(event_log_path: Path, event: dict[str, Any]) -> None:
+    event_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with event_log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def prompt_digest(prompt: dict[str, Any]) -> str:
+    payload = json.dumps(prompt, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def build_llm_prompt(
+    task: str,
+    skills: list[dict[str, str]],
+    context_map: dict[str, Any],
+    migration_map: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "role": "migration_agent",
+        "task": task,
+        "skills": skills,
+        "context_map": context_map,
+        "migration_map": migration_map,
+        "response_schema": {
+            "status": "completed|needs_input|failed",
+            "summary": "short migration decision",
+            "patch_proposal": [{"file": "path", "reason": "why this file changes"}],
+            "validation": ["commands or checks to run"],
+        },
+    }
+
+
+def offline_llm_response(prompt: dict[str, Any]) -> dict[str, Any]:
+    edit_targets = prompt["migration_map"]["candidate_edit_targets"]
+    return {
+        "status": "completed",
+        "summary": "Offline deterministic provider produced a migration patch proposal.",
+        "patch_proposal": [
+            {
+                "file": path,
+                "reason": "candidate migration target from context map",
+            }
+            for path in edit_targets
+        ],
+        "validation": prompt["context_map"]["test_commands"],
+    }
+
+
+def call_openai_provider(prompt: dict[str, Any]) -> dict[str, Any]:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ProviderConfigurationError("OPENAI_API_KEY is required for --provider openai")
+
+    model = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
+    body = {
+        "model": model,
+        "input": (
+            "You are a code migration agent. Return JSON only.\n"
+            + json.dumps(prompt, sort_keys=True)
+        ),
+    }
+    req = request.Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.URLError as exc:
+        raise ProviderConfigurationError(f"OpenAI provider request failed: {exc}") from exc
+
+
+def call_codex_provider(prompt: dict[str, Any]) -> dict[str, Any]:
+    command = os.environ.get("CODEX_SDK_COMMAND")
+    if not command:
+        raise ProviderConfigurationError("CODEX_SDK_COMMAND is required for --provider codex")
+
+    result = subprocess.run(
+        shlex.split(command),
+        input=json.dumps(prompt),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ProviderConfigurationError(
+            f"Codex SDK command failed with exit code {result.returncode}: {result.stderr}"
+        )
+    return json.loads(result.stdout)
+
+
+def call_llm_provider(provider: str, prompt: dict[str, Any]) -> dict[str, Any]:
+    if provider == "offline":
+        return offline_llm_response(prompt)
+    if provider == "openai":
+        return call_openai_provider(prompt)
+    if provider == "codex":
+        return call_codex_provider(prompt)
+    raise ProviderConfigurationError(f"Unsupported provider: {provider}")
+
+
 def parse_command(command: str) -> tuple[dict[str, str], list[str]]:
     env = os.environ.copy()
     args = shlex.split(command)
@@ -216,23 +385,109 @@ def run_test_commands(project_path: Path, commands: list[str]) -> list[dict[str,
     return results
 
 
-def run_agent(project_path: Path, task: str, run_tests: bool) -> dict[str, Any]:
-    skills = load_migration_skills()
-    context_map = build_context_map(project_path)
-    migration_map = build_migration_map(context_map, task)
-    test_results = run_test_commands(project_path, context_map["test_commands"]) if run_tests else []
+def run_agent(
+    project_path: Path,
+    task: str,
+    provider: str,
+    run_tests: bool,
+    event_log_path: Path,
+    run_id: str,
+) -> dict[str, Any]:
+    append_event(event_log_path, {"type": "agent_started", "run_id": run_id, "task": task})
+    try:
+        skills = load_migration_skills()
+        for skill in skills:
+            append_event(
+                event_log_path,
+                {
+                    "type": "skill_discovered",
+                    "name": skill["name"],
+                    "path": skill["path"],
+                },
+            )
+
+        context_map = build_context_map(project_path)
+        migration_map = build_migration_map(context_map, task)
+        for call in build_skill_calls(skills, migration_map):
+            append_event(
+                event_log_path,
+                {
+                    "type": "skill_used",
+                    "name": call["skill"],
+                    "reason": call["instruction"],
+                },
+            )
+
+        prompt = build_llm_prompt(task, skills, context_map, migration_map)
+        digest = prompt_digest(prompt)
+        append_event(
+            event_log_path,
+            {
+                "type": "llm_request",
+                "provider": provider,
+                "prompt_sha256": digest,
+            },
+        )
+        llm_result = call_llm_provider(provider, prompt)
+        append_event(
+            event_log_path,
+            {
+                "type": "llm_response",
+                "provider": provider,
+                "status": llm_result.get("status", "unknown"),
+            },
+        )
+        append_event(
+            event_log_path,
+            {
+                "type": "patch_proposed",
+                "files": [
+                    item["file"]
+                    for item in llm_result.get("patch_proposal", [])
+                    if isinstance(item, dict) and "file" in item
+                ],
+            },
+        )
+
+        for command in context_map["test_commands"] if run_tests else []:
+            append_event(event_log_path, {"type": "tests_started", "command": command})
+        test_results = run_test_commands(project_path, context_map["test_commands"]) if run_tests else []
+        for result in test_results:
+            append_event(
+                event_log_path,
+                {
+                    "type": "tests_finished",
+                    "command": result["command"],
+                    "exit_code": result["exit_code"],
+                },
+            )
+    except Exception as exc:
+        append_event(
+            event_log_path,
+            {
+                "type": "agent_finished",
+                "status": "failed",
+                "error": str(exc),
+            },
+        )
+        raise
 
     status = "planned"
     if run_tests:
         status = "validated" if all(result["exit_code"] == 0 for result in test_results) else "failed"
+    append_event(event_log_path, {"type": "agent_finished", "status": status})
 
     return {
         "agent": "migration-pilot-sample",
+        "run_id": run_id,
         "status": status,
+        "provider": provider,
+        "event_log": event_log_path.as_posix(),
         "skills_loaded": skills,
         "skill_calls": build_skill_calls(skills, migration_map),
         "context_map": context_map,
         "migration_map": migration_map,
+        "llm_result": llm_result,
         "validation_plan": context_map["test_commands"],
         "test_results": test_results,
     }
@@ -367,6 +622,22 @@ def parse_args() -> argparse.Namespace:
         help="Run discovered harness test commands after planning.",
     )
     parser.add_argument(
+        "--provider",
+        choices=("offline", "openai", "codex"),
+        default="offline",
+        help="LLM provider to use. offline is deterministic; codex uses CODEX_SDK_COMMAND.",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Agent Gauntlet run id. Defaults to a generated id.",
+    )
+    parser.add_argument(
+        "--event-log",
+        default=None,
+        help="Path for agent-owned JSONL event log.",
+    )
+    parser.add_argument(
         "--sample-checks",
         action="store_true",
         help="Run built-in sample invariants. Automatically enabled for the sample project.",
@@ -378,9 +649,22 @@ def main() -> int:
     args = parse_args()
     project_path = Path(args.project).expanduser().resolve()
     is_sample_project = project_path == PROJECT_ROOT
+    run_id = args.run_id or str(uuid4())
+    event_log_path = (
+        Path(args.event_log).expanduser().resolve()
+        if args.event_log
+        else default_event_log_path(project_path, run_id)
+    )
 
     try:
-        payload = run_agent(project_path=project_path, task=args.task, run_tests=args.run_tests)
+        payload = run_agent(
+            project_path=project_path,
+            task=args.task,
+            provider=args.provider,
+            run_tests=args.run_tests,
+            event_log_path=event_log_path,
+            run_id=run_id,
+        )
         if args.sample_checks or is_sample_project:
             payload["sample_checks"] = run_checks()
             if payload["status"] == "planned":
