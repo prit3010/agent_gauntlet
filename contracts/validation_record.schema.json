@@ -11,6 +11,7 @@
     "bestCandidate",
     "validationScore",
     "candidateAgentVersions",
+    "heldoutInvariantIds",
     "gateResults",
     "status"
   ],
@@ -39,6 +40,13 @@
     "candidateAgentVersions": {
       "type": "object",
       "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "heldoutInvariantIds": {
+      "type": "array",
+      "items": {
         "type": "string",
         "minLength": 1
       }
