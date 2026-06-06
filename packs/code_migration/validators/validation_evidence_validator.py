@@ -5,8 +5,12 @@ import sys
 
 
 VALIDATOR_ID = "validation_evidence_validator"
-PYTEST_EVIDENCE = re.compile(
+TARGETED_PYTEST_EVIDENCE = re.compile(
     r"PYTHONPATH=src\b[^\r\n]*\bpytest\b[^\r\n]*tests/",
+    re.IGNORECASE,
+)
+FULL_SUITE_PYTEST_EVIDENCE = re.compile(
+    r"PYTHONPATH=src\b[^\r\n]*\bpytest\b(?:\s+-[\w-]+(?:=\S+)?)*(?=\s*(?:[:;,]|and\b|in\b|$))",
     re.IGNORECASE,
 )
 SUCCESS_EVIDENCE = re.compile(
@@ -26,9 +30,12 @@ def main() -> int:
     final_answer = " ".join(sys.argv[1:])
     failures = []
 
-    if not PYTEST_EVIDENCE.search(final_answer):
+    has_pytest_evidence = TARGETED_PYTEST_EVIDENCE.search(
+        final_answer
+    ) or FULL_SUITE_PYTEST_EVIDENCE.search(final_answer)
+    if not has_pytest_evidence:
         failures.append(
-            "missing pytest evidence containing PYTHONPATH=src, pytest, and tests/"
+            "missing pytest evidence containing PYTHONPATH=src and either tests/ or a full-suite pytest command"
         )
     if FAILURE_EVIDENCE.search(final_answer):
         failures.append("contains failure evidence")
