@@ -4,8 +4,12 @@ version = "0.1.0"
 description = "Agent Gauntlet hackathon repo"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "fastapi",
   "jsonschema>=4.25.1",
   "openai-codex>=0.1.0b2",
+  "pydantic>=2,<3",
+  "pytest",
+  "PyYAML",
 ]
 
 [dependency-groups]

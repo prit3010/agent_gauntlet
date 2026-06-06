@@ -52,6 +52,16 @@ class ParserTest(unittest.TestCase):
             ["scan"],
             ["generate", "--pack", "code_migration", "--scenarios", "3", "--generation-id", "gen-demo-001"],
             ["run", "--pack", "code_migration", "--scenarios", "12", "--round", "baseline"],
+            [
+                "run",
+                "--execute-agent",
+                "--meta-run-id",
+                "codebase_migration_agent_1",
+                "--run-id",
+                "run-001",
+                "--provider",
+                "offline",
+            ],
             ["trace", "pydantic_alias_regression_001"],
             [
                 "train",
@@ -522,6 +532,50 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("Run: run-demo-001", show_output)
             self.assertIn("Harness: v1", show_output)
             self.assertIn("File-output log imported: no", show_output)
+
+    def test_run_execute_agent_offline_writes_pre_run_and_post_run_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "data"
+            source_agent_dir = cli.REPO_ROOT / "sample-migration-agent"
+            source_runtime = source_agent_dir / "run_sample_migration.py"
+            before_source_runtime = source_runtime.read_text(encoding="utf-8")
+
+            run_output = capture_stdout(
+                cli.cmd_run,
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=12,
+                    round="baseline",
+                    run_id="run-live-001",
+                    runs_root=str(output_root / "runs"),
+                    agent_config=None,
+                    execute_agent=True,
+                    target_project=str(source_agent_dir),
+                    agent_manifest=str(source_agent_dir / "agentgauntlet.yaml"),
+                    provider="offline",
+                    task="Migrate this project to Pydantic v2",
+                    meta_run_id="codebase_migration_agent_1",
+                ),
+            )
+
+            artifact_root = output_root / "codebase_migration_agent_1" / "runs" / "run-live-001"
+            worktree = artifact_root / "worktree"
+            run_record = json.loads((artifact_root / "run.json").read_text(encoding="utf-8"))
+            changed_files = json.loads((artifact_root / "changed-files.json").read_text(encoding="utf-8"))
+
+            self.assertTrue(worktree.exists())
+            self.assertTrue((artifact_root / "stdout.txt").exists())
+            self.assertTrue((artifact_root / "stderr.txt").exists())
+            self.assertTrue((artifact_root / "agent-events.jsonl").exists())
+            self.assertTrue((artifact_root / "diff.patch").exists())
+            self.assertFalse((source_agent_dir / ".agentgauntlet" / "runs" / "run-live-001").exists())
+            self.assertEqual(source_runtime.read_text(encoding="utf-8"), before_source_runtime)
+            self.assertEqual(run_record["runId"], "run-live-001")
+            self.assertEqual(run_record["execution"]["status"], "not_applied")
+            self.assertEqual(run_record["workspace"]["worktree"], worktree.as_posix())
+            self.assertEqual(changed_files, [])
+            self.assertIn("Executed target agent", run_output)
+            self.assertIn("Post-run artifacts", run_output)
 
     def test_history_filters_by_target_agent_and_meta_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
