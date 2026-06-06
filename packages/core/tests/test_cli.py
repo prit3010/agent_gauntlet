@@ -187,6 +187,72 @@ class ScoringAndPromotionTest(unittest.TestCase):
 
 
 class CommandBehaviorTest(unittest.TestCase):
+    def write_run_artifacts(self, data_root: Path, meta_run_id: str, run_id: str) -> Path:
+        run_root = data_root / meta_run_id / "runs" / run_id
+        run_root.mkdir(parents=True)
+        (run_root / "run.json").write_text(
+            json.dumps(
+                {
+                    "runId": run_id,
+                    "targetAgent": {
+                        "id": "sample-migration-agent",
+                        "name": "Sample Migration Agent",
+                        "repoPath": "./sample-migration-agent",
+                        "version": "HEAD",
+                    },
+                    "metaAgent": {"id": "agent-gauntlet-demo-core", "version": "demo-core-v1"},
+                    "harness": {"version": "v1", "label": "Baseline Harness"},
+                    "pack": {"id": "code_migration", "name": "Code Migration Pack"},
+                    "result": {
+                        "round": "baseline",
+                        "scenariosRequested": 3,
+                        "passRate": "0/3",
+                        "readinessScore": 20,
+                        "criticalFailures": 2,
+                    },
+                    "logs": {
+                        "calls": {"mode": "jsonl", "path": ".agx/logs/agent-calls.jsonl"},
+                        "file_output": {
+                            "mode": "jsonl",
+                            "path": ".agx/logs/file-output.jsonl",
+                            "required": True,
+                        },
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "agent-events.jsonl").write_text('{"event":"final_answer","status":"not_applied"}\n', encoding="utf-8")
+        (run_root / "diff.patch").write_text("diff --git a/src/app/models.py b/src/app/models.py\n", encoding="utf-8")
+        (run_root / "changed-files.json").write_text(json.dumps(["src/app/models.py"]), encoding="utf-8")
+        return run_root
+
+    def write_generation_artifacts(self, data_root: Path, meta_run_id: str) -> None:
+        generation = cli.build_generation_record(
+            argparse.Namespace(
+                pack="code_migration",
+                scenarios=1,
+                generation_id=f"{meta_run_id}-generate",
+                meta_run_id=meta_run_id,
+                llm_provider="fixture",
+                llm_model="demo-fixture",
+            ),
+            cli.load_pack("code_migration"),
+            generated_scenarios=[
+                {
+                    "id": "generated_alias_preservation",
+                    "title": "Preserve public API aliases",
+                    "task": "Migrate the sample API models to Pydantic v2.",
+                    "invariant": "Public JSON fields stay snake_case.",
+                    "evidence": ["docs/api_contract.md", "tests/test_api_contract.py"],
+                    "passCriteria": ["pytest tests/test_api_contract.py passes"],
+                    "regressionCheck": "Do not weaken the API contract test.",
+                }
+            ],
+        )
+        cli.write_generation_record(generation, data_root)
+
     def test_init_prints_project_summary_without_writing_sample_repo(self) -> None:
         output = capture_stdout(
             cli.cmd_init,
@@ -681,6 +747,142 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Promotion gate passed", promote)
         self.assertIn("New accepted harness: v2", promote)
         self.assertIn("Wrote promotion record", promote)
+
+    def test_train_reads_meta_run_artifacts_and_records_evidence_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_root = temp_path / "data"
+            training_root = temp_path / "training"
+            self.write_run_artifacts(data_root, "meta-artifact-001", "run-001")
+            self.write_generation_artifacts(data_root, "meta-artifact-001")
+
+            output = capture_stdout(
+                cli.cmd_train,
+                argparse.Namespace(
+                    candidates=3,
+                    training_id="train-artifact-001",
+                    output_root=str(training_root),
+                    agents_root=str(temp_path / "agents"),
+                    agent_name="codebase_migrator",
+                    llm_provider="fixture",
+                    llm_model="demo-fixture",
+                    meta_run_id="meta-artifact-001",
+                    run_id="run-001",
+                    data_root=str(data_root),
+                ),
+            )
+
+            training_record = json.loads((training_root / "train-artifact-001" / "training.json").read_text())
+
+            self.assertEqual(training_record["sourceRun"]["metaRunId"], "meta-artifact-001")
+            self.assertEqual(training_record["sourceRun"]["runId"], "run-001")
+            self.assertIn("data/meta-artifact-001/runs/run-001/diff.patch", training_record["evidenceReferences"])
+            self.assertIn("generated_alias_preservation", training_record["generatedInvariantIds"])
+            self.assertIn("not_applied", training_record["failureSummary"])
+            self.assertIn("Read run artifacts", output)
+
+    def test_validate_records_candidate_paths_and_heldout_invariant_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            validation_root = Path(temp_dir) / "validations"
+
+            capture_stdout(
+                cli.cmd_validate,
+                argparse.Namespace(
+                    heldout=True,
+                    validation_id="val-heldout-001",
+                    output_root=str(validation_root),
+                    agents_root=str(Path(temp_dir) / "agents"),
+                    agent_name="codebase_migrator",
+                    meta_run_id=None,
+                    data_root=str(Path(temp_dir) / "data"),
+                ),
+            )
+
+            validation_record = json.loads((validation_root / "val-heldout-001" / "validation.json").read_text())
+
+            self.assertEqual(
+                validation_record["candidateAgentVersions"]["C"],
+                "agents/codebase_migrator/candidates/v1c",
+            )
+            self.assertIn("overblocking_countercase_012", validation_record["heldoutInvariantIds"])
+
+    def test_promote_uses_candidate_selected_by_validation_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            validation_root = temp_path / "validations"
+            promotion_root = temp_path / "promotions"
+            validation_record = cli.build_validation_record(
+                argparse.Namespace(
+                    heldout=True,
+                    validation_id="val-select-b",
+                    agent_name="codebase_migrator",
+                    meta_run_id=None,
+                    data_root=str(temp_path / "data"),
+                ),
+                cli.load_demo_data(),
+            )
+            validation_record["bestCandidate"] = "B"
+            validation_record["validationScore"] = 0.61
+            validation_record["gateResults"]["B"] = {
+                "passes": True,
+                "reason": "Synthetic validation selected candidate B.",
+            }
+            cli.write_validation_record(validation_record, validation_root)
+
+            capture_stdout(
+                cli.cmd_promote,
+                argparse.Namespace(
+                    if_pass=True,
+                    promotion_id="prom-select-b",
+                    output_root=str(promotion_root),
+                    agents_root=str(temp_path / "agents"),
+                    agent_name="codebase_migrator",
+                    validation_id="val-select-b",
+                    validation_root=str(validation_root),
+                ),
+            )
+
+            promotion_record = json.loads((promotion_root / "prom-select-b" / "promotion.json").read_text())
+            manifest = json.loads((temp_path / "agents" / "codebase_migrator" / "manifest.json").read_text())
+
+            self.assertEqual(promotion_record["promotedCandidate"], "B")
+            self.assertEqual(promotion_record["candidateHarnessVersion"], "v1b")
+            self.assertEqual(promotion_record["sourceValidationId"], "val-select-b")
+            self.assertEqual(manifest["current_version"], "v2")
+
+    def test_meta_run_execute_agent_writes_teammate_2_artifacts_under_meta_run_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "data"
+            agents_root = Path(temp_dir) / "agents"
+
+            output = capture_stdout(
+                cli.cmd_meta_run,
+                argparse.Namespace(
+                    meta_run_id="codebase_migration_agent_1",
+                    output_root=str(output_root),
+                    agents_root=str(agents_root),
+                    agent_name="codebase_migrator",
+                    pack="code_migration",
+                    scenarios=3,
+                    candidates=3,
+                    llm_provider="fixture",
+                    llm_model="demo-fixture",
+                    execute_agent=True,
+                    provider="offline",
+                    run_id="run-001",
+                ),
+            )
+
+            meta_run_root = output_root / "codebase_migration_agent_1"
+            self.assertTrue((meta_run_root / "generation.json").exists())
+            self.assertTrue((meta_run_root / "runs" / "run-001" / "run.json").exists())
+            self.assertTrue((meta_run_root / "runs" / "run-001" / "agent-events.jsonl").exists())
+            self.assertTrue((meta_run_root / "runs" / "run-001" / "diff.patch").exists())
+            self.assertTrue((meta_run_root / "runs" / "run-001" / "changed-files.json").exists())
+            self.assertTrue((meta_run_root / "training.json").exists())
+            self.assertTrue((meta_run_root / "validation.json").exists())
+            self.assertTrue((meta_run_root / "promotion.json").exists())
+            self.assertIn("generate -> run real agent -> train from artifacts -> validate -> promote", output)
 
     def test_demo_data_and_export_write_requested_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

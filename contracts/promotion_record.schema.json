@@ -16,6 +16,7 @@
     "validationScore",
     "gatePassed",
     "decision",
+    "sourceValidationId",
     "whyPromoted",
     "status"
   ],
@@ -63,6 +64,17 @@
     "decision": {
       "type": "string",
       "enum": ["deterministic_gate"]
+    },
+    "sourceValidationId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "whyPromoted": {
       "type": "array",

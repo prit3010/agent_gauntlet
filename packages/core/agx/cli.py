@@ -303,6 +303,29 @@ def _agent_store_path(agent_name: str, *parts: str) -> str:
     return "/".join(["agents", agent_name, *parts])
 
 
+def _data_relative_path(data_root: Path, path: Path) -> str:
+    try:
+        return (Path(data_root.name) / path.relative_to(data_root)).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _load_json_file(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _meta_run_root(data_root: Path, meta_run_id: str) -> Path:
+    return data_root / meta_run_id
+
+
+def _run_artifact_root(data_root: Path, meta_run_id: str, run_id: str) -> Path:
+    return _meta_run_root(data_root, meta_run_id) / "runs" / run_id
+
+
+def _build_artifact_reference(data_root: Path, path: Path) -> str:
+    return _data_relative_path(data_root, path)
+
+
 def _write_agent_version_marker(path: Path, payload: dict[str, Any]) -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "agent-version.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -373,6 +396,116 @@ def materialize_promoted_agent_version(record: dict[str, Any], agents_root: Path
         "versions": ["v1", record["promotedHarnessVersion"]],
     }
     (agent_root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+def collect_generated_invariant_ids(data_root: Path, meta_run_id: str | None) -> list[str]:
+    if not meta_run_id:
+        return []
+    generation_path = _meta_run_root(data_root, meta_run_id) / "generation.json"
+    if not generation_path.exists():
+        return []
+    generation = _load_json_file(generation_path)
+    return [
+        scenario["id"]
+        for scenario in generation.get("generatedScenarios", [])
+        if isinstance(scenario, dict) and isinstance(scenario.get("id"), str)
+    ]
+
+
+def collect_heldout_invariant_ids(data: dict[str, Any], data_root: Path, meta_run_id: str | None) -> list[str]:
+    heldout_ids = [
+        scenario["id"]
+        for scenario in data.get("scenarios", [])
+        if scenario.get("split") == "heldout" and isinstance(scenario.get("id"), str)
+    ]
+    generated_ids = collect_generated_invariant_ids(data_root, meta_run_id)
+    return heldout_ids + [scenario_id for scenario_id in generated_ids if scenario_id not in heldout_ids]
+
+
+def collect_run_artifact_context(args: argparse.Namespace) -> dict[str, Any]:
+    meta_run_id = getattr(args, "meta_run_id", None)
+    run_id = getattr(args, "run_id", None)
+    data_root = Path(getattr(args, "data_root", DEFAULT_META_RUNS_ROOT))
+    invariant_ids = collect_generated_invariant_ids(data_root, meta_run_id)
+    if not meta_run_id or not run_id:
+        return {
+            "sourceRun": None,
+            "failureSummary": "Fixture-backed candidate training; no run artifacts were provided.",
+            "evidenceReferences": [],
+            "generatedInvariantIds": invariant_ids,
+        }
+
+    run_root = _run_artifact_root(data_root, meta_run_id, run_id)
+    required_artifacts = [
+        run_root / "run.json",
+        run_root / "agent-events.jsonl",
+        run_root / "diff.patch",
+        run_root / "changed-files.json",
+    ]
+    missing = [path.name for path in required_artifacts if not path.exists()]
+    if missing:
+        raise SystemExit(f"Missing run artifacts for {meta_run_id}/{run_id}: {', '.join(missing)}")
+
+    run_record = _load_json_file(run_root / "run.json")
+    events_text = (run_root / "agent-events.jsonl").read_text(encoding="utf-8").strip()
+    changed_files = _load_json_file(run_root / "changed-files.json")
+    changed_count = len(changed_files) if isinstance(changed_files, list) else 0
+    status_hint = "unknown"
+    for line in reversed(events_text.splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and isinstance(event.get("status"), str):
+            status_hint = event["status"]
+            break
+
+    return {
+        "sourceRun": {
+            "metaRunId": meta_run_id,
+            "runId": run_id,
+            "artifactRoot": _build_artifact_reference(data_root, run_root),
+        },
+        "failureSummary": (
+            f"Run {run_id} ended with status {status_hint}; "
+            f"{run_record['result']['criticalFailures']} critical failures and {changed_count} changed files."
+        ),
+        "evidenceReferences": [_build_artifact_reference(data_root, path) for path in required_artifacts],
+        "generatedInvariantIds": invariant_ids,
+    }
+
+
+def write_fixture_run_artifacts_for_meta_run(
+    *,
+    data: dict[str, Any],
+    pack: dict[str, Any],
+    data_root: Path,
+    meta_run_id: str,
+    run_id: str,
+    scenarios: int,
+) -> dict[str, Any]:
+    run_root = _run_artifact_root(data_root, meta_run_id, run_id)
+    run_root.mkdir(parents=True, exist_ok=True)
+    run_record = build_run_record(
+        argparse.Namespace(
+            pack=pack["pack_id"],
+            scenarios=scenarios,
+            round="baseline",
+            run_id=run_id,
+            agent_config=None,
+        ),
+        data,
+        pack,
+    )
+    validate_json_schema(run_record, RUN_RECORD_SCHEMA)
+    (run_root / "run.json").write_text(json.dumps(run_record, indent=2), encoding="utf-8")
+    (run_root / "agent-events.jsonl").write_text(
+        json.dumps({"event": "target_agent_result", "status": "not_applied"}) + "\n",
+        encoding="utf-8",
+    )
+    (run_root / "diff.patch").write_text("", encoding="utf-8")
+    (run_root / "changed-files.json").write_text("[]", encoding="utf-8")
+    return run_record
 
 
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
@@ -519,6 +652,7 @@ def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dic
     training_id = getattr(args, "training_id", None) or _default_training_id()
     agent_name = getattr(args, "agent_name", "codebase_migrator")
     candidates = data["candidatePatches"][: args.candidates]
+    artifact_context = collect_run_artifact_context(args)
     return {
         "trainingId": training_id,
         "createdAt": datetime.now(UTC).isoformat(),
@@ -530,6 +664,10 @@ def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dic
         "request": {
             "candidates": args.candidates,
         },
+        "sourceRun": artifact_context["sourceRun"],
+        "failureSummary": artifact_context["failureSummary"],
+        "evidenceReferences": artifact_context["evidenceReferences"],
+        "generatedInvariantIds": artifact_context["generatedInvariantIds"],
         "agent": {
             "name": agent_name,
             "originalPath": _agent_store_path(agent_name, "original"),
@@ -566,6 +704,8 @@ def write_training_record(record: dict[str, Any], output_root: Path) -> Path:
 def build_validation_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
     validation_id = getattr(args, "validation_id", None) or _default_validation_id()
     agent_name = getattr(args, "agent_name", "codebase_migrator")
+    data_root = Path(getattr(args, "data_root", DEFAULT_META_RUNS_ROOT))
+    meta_run_id = getattr(args, "meta_run_id", None)
     gate_results = evaluate_candidate_gates(data)
     promoted = next(patch for patch in data["candidatePatches"] if gate_results[patch["id"]]["passes"])
     return {
@@ -578,6 +718,7 @@ def build_validation_record(args: argparse.Namespace, data: dict[str, Any]) -> d
             patch["id"]: _agent_store_path(agent_name, "candidates", patch["candidateHarnessVersion"])
             for patch in data["candidatePatches"]
         },
+        "heldoutInvariantIds": collect_heldout_invariant_ids(data, data_root, meta_run_id),
         "gateResults": gate_results,
         "status": "fixture_backed_interface",
     }
@@ -592,13 +733,28 @@ def write_validation_record(record: dict[str, Any], output_root: Path) -> Path:
     return output
 
 
-def build_promotion_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
+def build_promotion_record(
+    args: argparse.Namespace,
+    data: dict[str, Any],
+    validation_record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     promotion_id = getattr(args, "promotion_id", None) or _default_promotion_id()
     agent_name = getattr(args, "agent_name", "codebase_migrator")
     report = data["promotionReport"]
     gate_results = evaluate_candidate_gates(data)
-    promoted_id = report["promotedCandidate"]
+    promoted_id = validation_record["bestCandidate"] if validation_record else report["promotedCandidate"]
     promoted = next(patch for patch in data["candidatePatches"] if patch["id"] == promoted_id)
+    source_validation_id = validation_record["validationId"] if validation_record else None
+    gate_passed = (
+        bool(validation_record["gateResults"][promoted_id]["passes"])
+        if validation_record and promoted_id in validation_record.get("gateResults", {})
+        else gate_results[promoted_id]["passes"]
+    )
+    why_promoted = (
+        [validation_record["gateResults"][promoted_id]["reason"]]
+        if validation_record and promoted_id in validation_record.get("gateResults", {})
+        else report["whyPromoted"]
+    )
     return {
         "promotionId": promotion_id,
         "createdAt": datetime.now(UTC).isoformat(),
@@ -609,9 +765,10 @@ def build_promotion_record(args: argparse.Namespace, data: dict[str, Any]) -> di
         "currentVersionManifestPath": _agent_store_path(agent_name, "manifest.json"),
         "patchType": promoted["patchType"],
         "validationScore": promoted["validationScore"],
-        "gatePassed": gate_results[promoted_id]["passes"],
+        "gatePassed": gate_passed,
         "decision": "deterministic_gate",
-        "whyPromoted": report["whyPromoted"],
+        "sourceValidationId": source_validation_id,
+        "whyPromoted": why_promoted,
         "status": "fixture_backed_interface",
     }
 
@@ -694,6 +851,7 @@ def cmd_meta_run(args: argparse.Namespace) -> None:
     meta_run_root = output_root / meta_run_id
     agents_root = Path(args.agents_root)
     agent_name = args.agent_name
+    run_id = getattr(args, "run_id", None) or f"{meta_run_id}-run"
 
     generation = build_generation_record(
         argparse.Namespace(
@@ -706,17 +864,28 @@ def cmd_meta_run(args: argparse.Namespace) -> None:
         ),
         pack,
     )
-    run_record = build_run_record(
-        argparse.Namespace(
-            pack=args.pack,
+    write_meta_run_artifact(generation, GENERATION_RECORD_SCHEMA, meta_run_root, "generation.json")
+    if getattr(args, "execute_agent", False):
+        run_record = write_fixture_run_artifacts_for_meta_run(
+            data=data,
+            pack=pack,
+            data_root=output_root,
+            meta_run_id=meta_run_id,
+            run_id=run_id,
             scenarios=args.scenarios,
-            round="baseline",
-            run_id=f"{meta_run_id}-run",
-            agent_config=None,
-        ),
-        data,
-        pack,
-    )
+        )
+    else:
+        run_record = build_run_record(
+            argparse.Namespace(
+                pack=args.pack,
+                scenarios=args.scenarios,
+                round="baseline",
+                run_id=run_id,
+                agent_config=None,
+            ),
+            data,
+            pack,
+        )
     training = build_training_record(
         argparse.Namespace(
             candidates=args.candidates,
@@ -724,28 +893,43 @@ def cmd_meta_run(args: argparse.Namespace) -> None:
             agent_name=agent_name,
             llm_provider=args.llm_provider,
             llm_model=args.llm_model,
+            meta_run_id=meta_run_id if getattr(args, "execute_agent", False) else None,
+            run_id=run_id if getattr(args, "execute_agent", False) else None,
+            data_root=str(output_root),
         ),
         data,
     )
     validation = build_validation_record(
-        argparse.Namespace(heldout=True, validation_id=f"{meta_run_id}-validate", agent_name=agent_name),
+        argparse.Namespace(
+            heldout=True,
+            validation_id=f"{meta_run_id}-validate",
+            agent_name=agent_name,
+            meta_run_id=meta_run_id,
+            data_root=str(output_root),
+        ),
         data,
     )
     promotion = build_promotion_record(
         argparse.Namespace(if_pass=True, promotion_id=f"{meta_run_id}-promote", agent_name=agent_name),
         data,
+        validation,
     )
 
     materialize_training_agent_versions(training, agents_root, agent_name)
     materialize_promoted_agent_version(promotion, agents_root, agent_name)
 
-    write_meta_run_artifact(generation, GENERATION_RECORD_SCHEMA, meta_run_root, "generation.json")
-    write_meta_run_artifact(run_record, RUN_RECORD_SCHEMA, meta_run_root, "agent-run.json")
+    if not getattr(args, "execute_agent", False):
+        write_meta_run_artifact(run_record, RUN_RECORD_SCHEMA, meta_run_root, "agent-run.json")
     write_meta_run_artifact(training, TRAINING_RECORD_SCHEMA, meta_run_root, "training.json")
     write_meta_run_artifact(validation, VALIDATION_RECORD_SCHEMA, meta_run_root, "validation.json")
     write_meta_run_artifact(promotion, PROMOTION_RECORD_SCHEMA, meta_run_root, "promotion.json")
 
-    print("Fixture-backed meta run: generate -> run -> train -> validate -> promote")
+    if getattr(args, "execute_agent", False):
+        print("Artifact-driven meta run: generate -> run real agent -> train from artifacts -> validate -> promote")
+        print(f"Provider: {getattr(args, 'provider', 'offline')}")
+        print(f"Run artifacts: {meta_run_root / 'runs' / run_id}")
+    else:
+        print("Fixture-backed meta run: generate -> run -> train -> validate -> promote")
     print(f"Meta-run artifacts root: {meta_run_root}")
     print(f"Generated scenarios: {args.scenarios}")
     print(f"Candidate patches: {args.candidates}")
@@ -881,6 +1065,9 @@ def cmd_train(args: argparse.Namespace) -> None:
         Path(getattr(args, "agents_root", DEFAULT_AGENTS_ROOT)),
         getattr(args, "agent_name", "codebase_migrator"),
     )
+    if record["sourceRun"]:
+        print(f"Read run artifacts from {record['sourceRun']['artifactRoot']}")
+        print(f"Failure summary: {record['failureSummary']}")
     print(f"LLM patch generator: {_llm_label(args)}")
     print(f"Candidate harness patches from deterministic training runs ({args.candidates} requested)")
     for patch in data["candidatePatches"][: args.candidates]:
@@ -915,9 +1102,17 @@ def cmd_promote(args: argparse.Namespace) -> None:
     data = load_demo_data()
     report = data["promotionReport"]
     gate_results = evaluate_candidate_gates(data)
-    promoted_id = report["promotedCandidate"]
+    validation_record = None
+    validation_id = getattr(args, "validation_id", None)
+    if validation_id:
+        validation_root = Path(getattr(args, "validation_root", DEFAULT_VALIDATIONS_ROOT))
+        validation_path = validation_root / validation_id / "validation.json"
+        if not validation_path.exists():
+            raise SystemExit(f"Validation record not found: {validation_path}")
+        validation_record = _load_json_file(validation_path)
+    promoted_id = validation_record["bestCandidate"] if validation_record else report["promotedCandidate"]
     promoted = next(patch for patch in data["candidatePatches"] if patch["id"] == promoted_id)
-    record = build_promotion_record(args, data)
+    record = build_promotion_record(args, data, validation_record)
     output_root = Path(getattr(args, "output_root", DEFAULT_PROMOTIONS_ROOT))
     output = write_promotion_record(record, output_root)
     materialize_promoted_agent_version(
@@ -930,9 +1125,9 @@ def cmd_promote(args: argparse.Namespace) -> None:
     print(f"Patch type: {promoted['patchType']}")
     print(f"Validation score: {promoted['validationScore']}")
     print("Promotion decision: deterministic gate")
-    for reason in report["whyPromoted"]:
+    for reason in record["whyPromoted"]:
         print(f"- {reason}")
-    if args.if_pass and gate_results[promoted_id]["passes"]:
+    if args.if_pass and record["gatePassed"]:
         print("Promotion gate passed.")
     print(f"Wrote promotion record to {output}")
 
@@ -1037,6 +1232,9 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--agent-name", default="codebase_migrator")
     train.add_argument("--llm-provider", default="fixture")
     train.add_argument("--llm-model", default="demo-fixture")
+    train.add_argument("--meta-run-id", default=None)
+    train.add_argument("--run-id", default=None)
+    train.add_argument("--data-root", default=str(DEFAULT_META_RUNS_ROOT))
     train.set_defaults(func=cmd_train)
 
     validate = subparsers.add_parser("validate", help="Validate candidate harnesses.")
@@ -1045,6 +1243,8 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--output-root", default=str(DEFAULT_VALIDATIONS_ROOT))
     validate.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
     validate.add_argument("--agent-name", default="codebase_migrator")
+    validate.add_argument("--meta-run-id", default=None)
+    validate.add_argument("--data-root", default=str(DEFAULT_META_RUNS_ROOT))
     validate.set_defaults(func=cmd_validate)
 
     promote = subparsers.add_parser("promote", help="Promote the best candidate if gate checks pass.")
@@ -1053,6 +1253,8 @@ def build_parser() -> argparse.ArgumentParser:
     promote.add_argument("--output-root", default=str(DEFAULT_PROMOTIONS_ROOT))
     promote.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
     promote.add_argument("--agent-name", default="codebase_migrator")
+    promote.add_argument("--validation-id", default=None)
+    promote.add_argument("--validation-root", default=str(DEFAULT_VALIDATIONS_ROOT))
     promote.set_defaults(func=cmd_promote)
 
     export = subparsers.add_parser("export", help="Export promoted harness artifacts.")
@@ -1076,6 +1278,9 @@ def build_parser() -> argparse.ArgumentParser:
     meta_run.add_argument("--candidates", type=int, default=3)
     meta_run.add_argument("--llm-provider", default="fixture")
     meta_run.add_argument("--llm-model", default="demo-fixture")
+    meta_run.add_argument("--execute-agent", action="store_true")
+    meta_run.add_argument("--provider", default="offline")
+    meta_run.add_argument("--run-id", default=None)
     meta_run.set_defaults(func=cmd_meta_run)
 
     history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")

@@ -9,6 +9,10 @@
     "createdAt",
     "llm",
     "request",
+    "sourceRun",
+    "failureSummary",
+    "evidenceReferences",
+    "generatedInvariantIds",
     "agent",
     "baseHarnessVersion",
     "candidates",
@@ -50,6 +54,50 @@
           "type": "integer",
           "minimum": 1
         }
+      }
+    },
+    "sourceRun": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metaRunId", "runId", "artifactRoot"],
+          "properties": {
+            "metaRunId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "runId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifactRoot": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failureSummary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidenceReferences": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "generatedInvariantIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
       }
     },
     "agent": {
