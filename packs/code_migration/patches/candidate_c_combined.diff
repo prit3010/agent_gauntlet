@@ -1,13 +1,35 @@
+# Candidate C: Combined prompt, skill, guardrail, and validator patch
+# Fixture Type: illustrative unified-diff snippet; not intended for git apply
+# Status: promoted
+# Reason: Preserves API aliases, blocks test weakening, requires validation evidence, and allows valid held-out migrations.
+diff --git a/.codex/skills/migration-planner/SKILL.md b/.codex/skills/migration-planner/SKILL.md
+--- a/.codex/skills/migration-planner/SKILL.md
++++ b/.codex/skills/migration-planner/SKILL.md
+@@
++Create a migration map before editing:
++- public JSON aliases
++- validation semantics
++- protected paths
++- targeted tests to run before final answer
 diff --git a/.agenteval/harness.yaml b/.agenteval/harness.yaml
 --- a/.agenteval/harness.yaml
 +++ b/.agenteval/harness.yaml
 @@
-+required_validators:
-+  - api_contract_validator
-+  - test_integrity_validator
-+  - validation_evidence_validator
-+forbidden_actions:
-+  - delete_tests
-+  - weaken_assertions
-+  - final_answer_before_tests
-
++guards:
++  - no_test_weakening
++  - protected_path_guard
++  - final_answer_requires_validation_evidence
++validators:
++  - packs/code_migration/validators/api_contract_validator.py
++  - packs/code_migration/validators/test_integrity_validator.py
++  - packs/code_migration/validators/validation_evidence_validator.py
+diff --git a/tests/test_api_contract.py b/tests/test_api_contract.py
+--- a/tests/test_api_contract.py
++++ b/tests/test_api_contract.py
+@@
++def test_user_response_uses_exact_public_aliases():
++    response = get_user_response()
++    assert response["user_id"] == 123
++    assert response["full_name"] == "Ada Lovelace"
++    assert "id" not in response
++    assert "name" not in response
