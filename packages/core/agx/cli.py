@@ -456,6 +456,14 @@ def write_promotion_record(record: dict[str, Any], output_root: Path) -> Path:
     return output
 
 
+def write_meta_run_artifact(record: dict[str, Any], schema_path: Path, meta_run_root: Path, filename: str) -> Path:
+    meta_run_root.mkdir(parents=True, exist_ok=True)
+    validate_json_schema(record, schema_path)
+    output = meta_run_root / filename
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
 def _import_file_output_log(record: dict[str, Any], run_dir: Path) -> None:
     file_output = record["logs"]["file_output"]
     configured_path = Path(file_output["path"])
@@ -514,6 +522,7 @@ def cmd_demo_meta_run(args: argparse.Namespace) -> None:
     pack = load_pack(args.pack)
     output_root = Path(args.output_root)
     demo_id = args.demo_id
+    meta_run_root = output_root / demo_id
 
     generation = build_generation_record(
         argparse.Namespace(
@@ -554,14 +563,14 @@ def cmd_demo_meta_run(args: argparse.Namespace) -> None:
         data,
     )
 
-    write_generation_record(generation, output_root / "generations")
-    write_run_record(run_record, output_root / "runs")
-    write_training_record(training, output_root / "training")
-    write_validation_record(validation, output_root / "validations")
-    write_promotion_record(promotion, output_root / "promotions")
+    write_meta_run_artifact(generation, GENERATION_RECORD_SCHEMA, meta_run_root, "generation.json")
+    write_meta_run_artifact(run_record, RUN_RECORD_SCHEMA, meta_run_root, "agent-run.json")
+    write_meta_run_artifact(training, TRAINING_RECORD_SCHEMA, meta_run_root, "training.json")
+    write_meta_run_artifact(validation, VALIDATION_RECORD_SCHEMA, meta_run_root, "validation.json")
+    write_meta_run_artifact(promotion, PROMOTION_RECORD_SCHEMA, meta_run_root, "promotion.json")
 
     print("Fixture-backed meta run: generate -> run -> train -> validate -> promote")
-    print(f"Demo artifacts root: {output_root}")
+    print(f"Demo artifacts root: {meta_run_root}")
     print(f"Generated scenarios: {args.scenarios}")
     print(f"Candidate patches: {args.candidates}")
     print(f"Promoted harness: {promotion['promotedHarnessVersion']}")

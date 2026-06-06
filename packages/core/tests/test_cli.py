@@ -554,11 +554,12 @@ class CommandBehaviorTest(unittest.TestCase):
                 ),
             )
 
-            self.assertTrue((output_root / "generations" / "demo-001-generate" / "generation.json").exists())
-            self.assertTrue((output_root / "runs" / "demo-001-run" / "run.json").exists())
-            self.assertTrue((output_root / "training" / "demo-001-train" / "training.json").exists())
-            self.assertTrue((output_root / "validations" / "demo-001-validate" / "validation.json").exists())
-            self.assertTrue((output_root / "promotions" / "demo-001-promote" / "promotion.json").exists())
+            meta_run_root = output_root / "demo-001"
+            self.assertTrue((meta_run_root / "generation.json").exists())
+            self.assertTrue((meta_run_root / "agent-run.json").exists())
+            self.assertTrue((meta_run_root / "training.json").exists())
+            self.assertTrue((meta_run_root / "validation.json").exists())
+            self.assertTrue((meta_run_root / "promotion.json").exists())
             self.assertIn("generate -> run -> train -> validate -> promote", output)
             self.assertIn("Demo artifacts root", output)
             self.assertIn("Promoted harness: v2", output)
