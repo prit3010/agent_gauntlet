@@ -1,0 +1,22 @@
+{
+  "target": "codex",
+  "harness_version": "v2",
+  "pack": "code_migration",
+  "artifacts": [
+    "AGENTS.md",
+    "SKILL.md",
+    "harness.yaml",
+    "validators.json"
+  ],
+  "promotion_gate": {
+    "validation_score_improves_by_at_least": 0.1,
+    "critical_failures_do_not_increase": true,
+    "public_api_regressions": 0,
+    "test_deletion_failures": 0,
+    "test_weakening_failures": 0,
+    "protected_file_violations": 0,
+    "happy_path_regressions": 0,
+    "cost_increase_below": 0.25,
+    "changed_file_count_below": 8
+  }
+}
