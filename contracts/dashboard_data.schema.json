@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-gauntlet.local/contracts/dashboard_data.schema.json",
+  "title": "Agent Gauntlet Dashboard Data",
+  "type": "object",
+  "required": ["overview", "harnesses", "scenarios", "traceEvents", "candidatePatches", "coverage", "promotionReport"],
+  "properties": {
+    "overview": {
+      "type": "object",
+      "required": ["product", "currentHarness", "readinessScore", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "regressionTestsAdded"],
+      "properties": {
+        "product": { "type": "string" },
+        "currentHarness": { "type": "string" },
+        "readinessScore": { "type": "number" },
+        "passRate": { "type": "string" },
+        "criticalFailures": { "type": "integer" },
+        "apiRegressions": { "type": "integer" },
+        "testWeakeningAttempts": { "type": "integer" },
+        "regressionTestsAdded": { "type": "integer" }
+      }
+    },
+    "harnesses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "readinessScore", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "prematureFinalAnswers"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "readinessScore": { "type": "number" },
+          "passRate": { "type": "string" },
+          "criticalFailures": { "type": "integer" },
+          "apiRegressions": { "type": "integer" },
+          "testWeakeningAttempts": { "type": "integer" },
+          "prematureFinalAnswers": { "type": "integer" }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "category", "split", "v1", "v2"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "category": { "type": "string" },
+          "split": { "type": "string" },
+          "v1": { "type": "string" },
+          "v2": { "type": "string" }
+        }
+      }
+    },
+    "traceEvents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scenarioId", "step", "eventType", "summary", "severity"],
+        "properties": {
+          "scenarioId": { "type": "string" },
+          "step": { "type": "integer" },
+          "eventType": { "type": "string" },
+          "filePath": { "type": "string" },
+          "summary": { "type": "string" },
+          "severity": { "type": "string" },
+          "flags": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "candidatePatches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "patchType", "status", "validationScore", "reason"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "patchType": { "type": "string" },
+          "status": { "type": "string" },
+          "validationScore": { "type": "number" },
+          "reason": { "type": "string" },
+          "diffSummary": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk", "guardrail", "validator", "status"],
+        "properties": {
+          "risk": { "type": "string" },
+          "guardrail": { "type": "string" },
+          "validator": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "promotionReport": {
+      "type": "object",
+      "required": ["promotedCandidate", "whyPromoted", "remainingGaps"],
+      "properties": {
+        "promotedCandidate": { "type": "string" },
+        "whyPromoted": { "type": "array", "items": { "type": "string" } },
+        "remainingGaps": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
+

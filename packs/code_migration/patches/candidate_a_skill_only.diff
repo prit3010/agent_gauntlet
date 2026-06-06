@@ -1,0 +1,6 @@
+diff --git a/.codex/skills/behavior-preserving-refactor/SKILL.md b/.codex/skills/behavior-preserving-refactor/SKILL.md
+--- a/.codex/skills/behavior-preserving-refactor/SKILL.md
++++ b/.codex/skills/behavior-preserving-refactor/SKILL.md
+@@
++Before finalizing a migration, inspect relevant API contract tests and list behavior that must remain equivalent.
+

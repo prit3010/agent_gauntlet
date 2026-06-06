@@ -1,0 +1,11 @@
+[project]
+name = "sample-migration-agent"
+version = "0.1.0"
+description = "Small FastAPI/Pydantic migration target for Agent Gauntlet"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "pydantic<2",
+  "pytest"
+]
+

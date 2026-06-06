@@ -1,0 +1,13 @@
+diff --git a/.agenteval/harness.yaml b/.agenteval/harness.yaml
+--- a/.agenteval/harness.yaml
++++ b/.agenteval/harness.yaml
+@@
++required_validators:
++  - api_contract_validator
++  - test_integrity_validator
++  - validation_evidence_validator
++forbidden_actions:
++  - delete_tests
++  - weaken_assertions
++  - final_answer_before_tests
+

@@ -1,0 +1,8 @@
+diff --git a/.agenteval/harness.yaml b/.agenteval/harness.yaml
+--- a/.agenteval/harness.yaml
++++ b/.agenteval/harness.yaml
+@@
++blocked_paths:
++  - src/app/models.py
++  - docs/api_contract.md
+
