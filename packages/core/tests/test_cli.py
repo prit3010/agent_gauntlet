@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
@@ -265,6 +267,144 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("Scenarios requested: 3", output)
             self.assertIn("teammate 2 scenario contract", output)
             self.assertIn("No live LLM call is made by this demo core", output)
+            self.assertIn("Wrote generation record", output)
+
+    def test_generate_with_codex_calls_core_helper_in_read_only_sandbox(self) -> None:
+        calls: dict[str, object] = {}
+
+        class FakeResult:
+            final_response = json.dumps(
+                {
+                    "scenarios": [
+                        {
+                            "id": "generated_alias_preservation",
+                            "title": "Preserve public API aliases",
+                            "task": "Migrate the sample API models to Pydantic v2.",
+                            "invariant": "Public JSON fields stay snake_case.",
+                            "evidence": ["docs/api_contract.md", "tests/test_api_contract.py"],
+                            "passCriteria": ["pytest tests/test_api_contract.py passes"],
+                            "regressionCheck": "Do not weaken the API contract test.",
+                        }
+                    ]
+                }
+            )
+
+        class FakeThread:
+            def run(self, prompt: str) -> FakeResult:
+                calls["prompt"] = prompt
+                return FakeResult()
+
+        class FakeCodex:
+            def __enter__(self) -> "FakeCodex":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def thread_start(self, *, model: str, sandbox: object) -> FakeThread:
+                calls["model"] = model
+                calls["sandbox"] = sandbox
+                return FakeThread()
+
+        class FakeSandbox:
+            read_only = "fake-read-only"
+            workspace_write = "fake-workspace-write"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "data"
+            with (
+                patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False),
+                patch("packages.core.agx.cli.Codex", FakeCodex, create=True),
+                patch("packages.core.agx.cli.Sandbox", FakeSandbox, create=True),
+            ):
+                output = capture_stdout(
+                    cli.cmd_generate,
+                    argparse.Namespace(
+                        pack="code_migration",
+                        scenarios=1,
+                        generation_id="gen-live-001",
+                        meta_run_id="meta-live-001",
+                        output_root=str(output_root),
+                        target_project="./sample-migration-agent",
+                        llm_provider="codex",
+                        llm_model="gpt-5",
+                    ),
+                )
+
+            generation_path = output_root / "meta-live-001" / "generation.json"
+            self.assertTrue(generation_path.exists())
+            generation_record = json.loads(generation_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(calls["sandbox"], FakeSandbox.read_only)
+            self.assertEqual(calls["model"], "gpt-5")
+            self.assertIn("Generate Agent Evaluation Scenarios", str(calls["prompt"]))
+            self.assertIn("sample-migration-agent", str(calls["prompt"]))
+            self.assertIn("Do not modify the target agent", str(calls["prompt"]))
+            self.assertEqual(generation_record["metaRunId"], "meta-live-001")
+            self.assertTrue(generation_record["llm"]["liveCall"])
+            self.assertEqual(generation_record["llm"]["sandbox"], "read_only")
+            self.assertEqual(generation_record["status"], "codex_generated")
+            self.assertEqual(generation_record["generatedScenarios"][0]["id"], "generated_alias_preservation")
+            self.assertIn("Codex scenario generator ran in read-only sandbox", output)
+
+    def test_generate_with_codex_falls_back_to_fixtures_when_sdk_or_key_is_missing(self) -> None:
+        class MissingCodex:
+            pass
+
+        class MissingSandbox:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "data"
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("packages.core.agx.cli.Codex", MissingCodex, create=True),
+                patch("packages.core.agx.cli.Sandbox", MissingSandbox, create=True),
+            ):
+                output = capture_stdout(
+                    cli.cmd_generate,
+                    argparse.Namespace(
+                        pack="code_migration",
+                        scenarios=2,
+                        generation_id="gen-fallback-001",
+                        meta_run_id="meta-fallback-001",
+                        output_root=str(output_root),
+                        target_project="./sample-migration-agent",
+                        llm_provider="codex",
+                        llm_model="gpt-5",
+                    ),
+                )
+
+            generation_path = output_root / "meta-fallback-001" / "generation.json"
+            self.assertTrue(generation_path.exists())
+            generation_record = json.loads(generation_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(generation_record["status"], "fixture_backed_interface")
+            self.assertFalse(generation_record["llm"]["liveCall"])
+            self.assertEqual(generation_record["llm"]["provider"], "fixture")
+            self.assertEqual(generation_record["llm"]["requestedProvider"], "codex")
+            self.assertIn("Codex SDK/key not configured; used fixture scenarios", output)
+
+    def test_generate_persists_generation_record_under_meta_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "data"
+
+            output = capture_stdout(
+                cli.cmd_generate,
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=3,
+                    generation_id="gen-demo-001",
+                    meta_run_id="meta-demo-001",
+                    output_root=str(output_root),
+                    target_project="./sample-migration-agent",
+                    llm_provider="fixture",
+                    llm_model="demo-fixture",
+                ),
+            )
+
+            self.assertTrue((output_root / "meta-demo-001" / "generation.json").exists())
+            self.assertFalse((output_root / "gen-demo-001" / "generation.json").exists())
             self.assertIn("Wrote generation record", output)
 
     def test_generate_prompt_is_saved_for_future_llm_call(self) -> None:
