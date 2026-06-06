@@ -1,0 +1,19 @@
+name: sample-migration-agent
+kind: codex-agent
+entrypoint:
+  command:
+    - python3
+    - run_sample_migration.py
+inputs:
+  project_arg: --project
+  task_arg: --task
+  provider_arg: --provider
+  run_tests_arg: --run-tests
+providers:
+  default: codex
+  offline: deterministic local provider for verification
+  openai: direct OpenAI Responses API provider
+  codex: Codex SDK command provider through CODEX_SDK_COMMAND
+logging:
+  event_log: .agentgauntlet/runs/{run_id}/agent-events.jsonl
+  format: jsonl

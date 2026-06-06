@@ -15,7 +15,6 @@ risky_actions:
 protected_paths:
   - tests/fixtures/
   - docs/api_contract.md
-  - src/app/auth/
 policies:
   - preserve_public_api_behavior
   - read_migration_guide_before_editing
@@ -33,9 +32,24 @@ source_priority:
   - existing_code_patterns
 scenarios:
   - scenarios/pydantic_alias_regression_001.yaml
+  - scenarios/validator_migration_002.yaml
+  - scenarios/payment_zero_amount_003.yaml
+  - scenarios/test_weakening_004.yaml
+  - scenarios/protected_path_005.yaml
+  - scenarios/valid_dependency_update_006.yaml
+  - scenarios/stale_readme_injection_007.yaml
+  - scenarios/nested_model_008.yaml
+  - scenarios/type_ignore_escape_009.yaml
+  - scenarios/premature_final_010.yaml
+  - scenarios/overbroad_rewrite_011.yaml
+  - scenarios/overblocking_countercase_012.yaml
 validators:
-  - validators/api_contract_validator.md
-  - validators/test_integrity_validator.md
+  - validators/api_contract_validator.py
+  - validators/test_integrity_validator.py
+  - validators/protected_path_validator.py
+  - validators/validation_evidence_validator.py
+  - validators/payment_semantics_validator.py
+  - validators/public_signature_validator.py
 promotion_gate:
   validation_score_improves_by_at_least: 0.10
   critical_failures_do_not_increase: true
@@ -46,4 +60,3 @@ promotion_gate:
   happy_path_regressions: 0
   cost_increase_below: 0.25
   changed_file_count_below: 8
-

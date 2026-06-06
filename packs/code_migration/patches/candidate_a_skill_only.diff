@@ -1,6 +1,10 @@
-diff --git a/.codex/skills/behavior-preserving-refactor/SKILL.md b/.codex/skills/behavior-preserving-refactor/SKILL.md
---- a/.codex/skills/behavior-preserving-refactor/SKILL.md
-+++ b/.codex/skills/behavior-preserving-refactor/SKILL.md
+# Candidate A: Skill-only patch
+# Fixture Type: illustrative unified-diff snippet; not intended for git apply
+# Status: rejected
+# Reason: Improves migration instructions but still allows final answers without validation evidence.
+diff --git a/.codex/skills/migration-planner/SKILL.md b/.codex/skills/migration-planner/SKILL.md
+--- a/.codex/skills/migration-planner/SKILL.md
++++ b/.codex/skills/migration-planner/SKILL.md
 @@
-+Before finalizing a migration, inspect relevant API contract tests and list behavior that must remain equivalent.
-
++Before editing, write a migration map that lists public API aliases and validation behavior.
++Prefer behavior-preserving Pydantic v2 changes over broad rewrites.
