@@ -509,7 +509,7 @@ def cmd_demo_data(args: argparse.Namespace) -> None:
     print("Source: contracts/sample_dashboard_data.json")
 
 
-def cmd_demo_run(args: argparse.Namespace) -> None:
+def cmd_demo_meta_run(args: argparse.Namespace) -> None:
     data = load_demo_data()
     pack = load_pack(args.pack)
     output_root = Path(args.output_root)
@@ -560,7 +560,7 @@ def cmd_demo_run(args: argparse.Namespace) -> None:
     write_validation_record(validation, output_root / "validations")
     write_promotion_record(promotion, output_root / "promotions")
 
-    print("Fixture-backed demo loop: generate -> run -> train -> validate -> promote")
+    print("Fixture-backed meta run: generate -> run -> train -> validate -> promote")
     print(f"Demo artifacts root: {output_root}")
     print(f"Generated scenarios: {args.scenarios}")
     print(f"Candidate patches: {args.candidates}")
@@ -811,15 +811,18 @@ def build_parser() -> argparse.ArgumentParser:
     demo_data.add_argument("--out", default=None)
     demo_data.set_defaults(func=cmd_demo_data)
 
-    demo_run = subparsers.add_parser("demo-run", help="Write a complete fixture-backed demo loop.")
-    demo_run.add_argument("--demo-id", default="demo-001")
-    demo_run.add_argument("--output-root", default=str(REPO_ROOT / "data" / "demo-runs"))
-    demo_run.add_argument("--pack", default="code_migration")
-    demo_run.add_argument("--scenarios", type=int, default=3)
-    demo_run.add_argument("--candidates", type=int, default=3)
-    demo_run.add_argument("--llm-provider", default="fixture")
-    demo_run.add_argument("--llm-model", default="demo-fixture")
-    demo_run.set_defaults(func=cmd_demo_run)
+    demo_meta_run = subparsers.add_parser(
+        "demo-meta-run",
+        help="Write a complete fixture-backed meta-agent loop.",
+    )
+    demo_meta_run.add_argument("--demo-id", default="demo-001")
+    demo_meta_run.add_argument("--output-root", default=str(REPO_ROOT / "data" / "demo-runs"))
+    demo_meta_run.add_argument("--pack", default="code_migration")
+    demo_meta_run.add_argument("--scenarios", type=int, default=3)
+    demo_meta_run.add_argument("--candidates", type=int, default=3)
+    demo_meta_run.add_argument("--llm-provider", default="fixture")
+    demo_meta_run.add_argument("--llm-model", default="demo-fixture")
+    demo_meta_run.set_defaults(func=cmd_demo_meta_run)
 
     history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")
     history.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
