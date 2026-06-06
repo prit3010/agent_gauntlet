@@ -459,6 +459,12 @@ def cmd_export(args: argparse.Namespace) -> None:
 def cmd_history(args: argparse.Namespace) -> None:
     runs_root = Path(args.runs_root)
     records = iter_run_records(runs_root)
+    agent_filter = getattr(args, "agent", None)
+    meta_agent_filter = getattr(args, "meta_agent", None)
+    if agent_filter:
+        records = [record for record in records if record["targetAgent"]["id"] == agent_filter]
+    if meta_agent_filter:
+        records = [record for record in records if record["metaAgent"]["version"] == meta_agent_filter]
     if not records:
         print(f"No runs found in {runs_root}")
         return
@@ -532,6 +538,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")
     history.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
+    history.add_argument("--agent", default=None, help="Filter by target agent id.")
+    history.add_argument("--meta-agent", default=None, help="Filter by meta-agent version.")
     history.set_defaults(func=cmd_history)
 
     show = subparsers.add_parser("show", help="Show one saved Agent Gauntlet run.")

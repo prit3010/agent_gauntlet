@@ -247,7 +247,7 @@ class CommandBehaviorTest(unittest.TestCase):
 
             history_output = capture_stdout(
                 cli.cmd_history,
-                argparse.Namespace(runs_root=str(runs_root)),
+                argparse.Namespace(runs_root=str(runs_root), agent=None, meta_agent=None),
             )
             show_output = capture_stdout(
                 cli.cmd_show,
@@ -258,6 +258,51 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("sample-migration-agent", history_output)
             self.assertIn("Run: run-demo-001", show_output)
             self.assertIn("Harness: v1", show_output)
+
+    def test_history_filters_by_target_agent_and_meta_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runs_root = Path(temp_dir) / "runs"
+            data = cli.load_demo_data()
+            pack = cli.load_pack("code_migration")
+            first = cli.build_run_record(
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=12,
+                    round="baseline",
+                    run_id="run-a",
+                    agent_config=None,
+                ),
+                data,
+                pack,
+            )
+            second = json.loads(json.dumps(first))
+            second["runId"] = "run-b"
+            second["targetAgent"]["id"] = "other-agent"
+            second["metaAgent"]["version"] = "demo-core-v2"
+            cli.write_run_record(first, runs_root)
+            cli.write_run_record(second, runs_root)
+
+            agent_history = capture_stdout(
+                cli.cmd_history,
+                argparse.Namespace(
+                    runs_root=str(runs_root),
+                    agent="sample-migration-agent",
+                    meta_agent=None,
+                ),
+            )
+            meta_history = capture_stdout(
+                cli.cmd_history,
+                argparse.Namespace(
+                    runs_root=str(runs_root),
+                    agent=None,
+                    meta_agent="demo-core-v2",
+                ),
+            )
+
+            self.assertIn("run-a", agent_history)
+            self.assertNotIn("run-b", agent_history)
+            self.assertIn("run-b", meta_history)
+            self.assertNotIn("run-a", meta_history)
 
     def test_run_imports_configured_file_output_log(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

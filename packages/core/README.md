@@ -91,6 +91,15 @@ data/runs/<run_id>/run.json
 
 and validate against `contracts/run_record.schema.json`.
 
+History commands:
+
+```bash
+uv run --python 3.12 --group dev python -m packages.core.agx.cli history
+uv run --python 3.12 --group dev python -m packages.core.agx.cli history --agent sample-migration-agent
+uv run --python 3.12 --group dev python -m packages.core.agx.cli history --meta-agent demo-core-v1
+uv run --python 3.12 --group dev python -m packages.core.agx.cli show <run_id>
+```
+
 ## Data Contract
 
 `contracts/dashboard_data.schema.json` is the source of truth for teammate 3 dashboard data. The canonical fixture is `contracts/sample_dashboard_data.json`.
