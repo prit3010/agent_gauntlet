@@ -19,6 +19,7 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --held
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass --promotion-id prom-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
 uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-data --out data/dashboard/demo-data.json
+uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-run --demo-id demo-001
 ```
 
 Run tests with:
@@ -36,6 +37,8 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 `validate` writes `data/validations/<validation_id>/validation.json`.
 
 `promote` writes `data/promotions/<promotion_id>/promotion.json`.
+
+`demo-run` writes a complete fixture-backed loop under `data/demo-runs`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 

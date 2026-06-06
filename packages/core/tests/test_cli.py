@@ -36,6 +36,7 @@ class ParserTest(unittest.TestCase):
             "promote",
             "export",
             "demo-data",
+            "demo-run",
             "history",
             "show",
         ]:
@@ -65,6 +66,7 @@ class ParserTest(unittest.TestCase):
             ["promote", "--if-pass", "--promotion-id", "prom-demo-001"],
             ["export", "--target", "codex"],
             ["demo-data"],
+            ["demo-run", "--demo-id", "demo-001"],
             ["history"],
             ["show", "run-demo-001"],
         ]
@@ -534,6 +536,32 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(manifest_data["target"], "codex")
             self.assertEqual(manifest_data["harness_version"], "v2")
             self.assertIn("Wrote export manifest", export_text)
+
+    def test_demo_run_writes_complete_fixture_backed_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "demo"
+
+            output = capture_stdout(
+                cli.cmd_demo_run,
+                argparse.Namespace(
+                    demo_id="demo-001",
+                    output_root=str(output_root),
+                    pack="code_migration",
+                    scenarios=3,
+                    candidates=3,
+                    llm_provider="openai",
+                    llm_model="gpt-5",
+                ),
+            )
+
+            self.assertTrue((output_root / "generations" / "demo-001-generate" / "generation.json").exists())
+            self.assertTrue((output_root / "runs" / "demo-001-run" / "run.json").exists())
+            self.assertTrue((output_root / "training" / "demo-001-train" / "training.json").exists())
+            self.assertTrue((output_root / "validations" / "demo-001-validate" / "validation.json").exists())
+            self.assertTrue((output_root / "promotions" / "demo-001-promote" / "promotion.json").exists())
+            self.assertIn("generate -> run -> train -> validate -> promote", output)
+            self.assertIn("Demo artifacts root", output)
+            self.assertIn("Promoted harness: v2", output)
 
 
 class ContractShapeTest(unittest.TestCase):

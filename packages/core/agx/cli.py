@@ -509,6 +509,64 @@ def cmd_demo_data(args: argparse.Namespace) -> None:
     print("Source: contracts/sample_dashboard_data.json")
 
 
+def cmd_demo_run(args: argparse.Namespace) -> None:
+    data = load_demo_data()
+    pack = load_pack(args.pack)
+    output_root = Path(args.output_root)
+    demo_id = args.demo_id
+
+    generation = build_generation_record(
+        argparse.Namespace(
+            pack=args.pack,
+            scenarios=args.scenarios,
+            generation_id=f"{demo_id}-generate",
+            llm_provider=args.llm_provider,
+            llm_model=args.llm_model,
+        ),
+        pack,
+    )
+    run_record = build_run_record(
+        argparse.Namespace(
+            pack=args.pack,
+            scenarios=args.scenarios,
+            round="baseline",
+            run_id=f"{demo_id}-run",
+            agent_config=None,
+        ),
+        data,
+        pack,
+    )
+    training = build_training_record(
+        argparse.Namespace(
+            candidates=args.candidates,
+            training_id=f"{demo_id}-train",
+            llm_provider=args.llm_provider,
+            llm_model=args.llm_model,
+        ),
+        data,
+    )
+    validation = build_validation_record(
+        argparse.Namespace(heldout=True, validation_id=f"{demo_id}-validate"),
+        data,
+    )
+    promotion = build_promotion_record(
+        argparse.Namespace(if_pass=True, promotion_id=f"{demo_id}-promote"),
+        data,
+    )
+
+    write_generation_record(generation, output_root / "generations")
+    write_run_record(run_record, output_root / "runs")
+    write_training_record(training, output_root / "training")
+    write_validation_record(validation, output_root / "validations")
+    write_promotion_record(promotion, output_root / "promotions")
+
+    print("Fixture-backed demo loop: generate -> run -> train -> validate -> promote")
+    print(f"Demo artifacts root: {output_root}")
+    print(f"Generated scenarios: {args.scenarios}")
+    print(f"Candidate patches: {args.candidates}")
+    print(f"Promoted harness: {promotion['promotedHarnessVersion']}")
+
+
 def cmd_scan(args: argparse.Namespace) -> None:
     project_path = Path(args.project_path).resolve()
     print(json.dumps(build_context_map(project_path), indent=2))
@@ -752,6 +810,16 @@ def build_parser() -> argparse.ArgumentParser:
     demo_data = subparsers.add_parser("demo-data", help="Write dashboard demo data JSON.")
     demo_data.add_argument("--out", default=None)
     demo_data.set_defaults(func=cmd_demo_data)
+
+    demo_run = subparsers.add_parser("demo-run", help="Write a complete fixture-backed demo loop.")
+    demo_run.add_argument("--demo-id", default="demo-001")
+    demo_run.add_argument("--output-root", default=str(REPO_ROOT / "data" / "demo-runs"))
+    demo_run.add_argument("--pack", default="code_migration")
+    demo_run.add_argument("--scenarios", type=int, default=3)
+    demo_run.add_argument("--candidates", type=int, default=3)
+    demo_run.add_argument("--llm-provider", default="fixture")
+    demo_run.add_argument("--llm-model", default="demo-fixture")
+    demo_run.set_defaults(func=cmd_demo_run)
 
     history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")
     history.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
