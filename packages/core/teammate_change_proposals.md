@@ -79,6 +79,16 @@ That record validates against `contracts/training_record.schema.json` and
 captures provider/model, requested candidate count, base harness version, and
 candidate lineage such as `v1 + Candidate C -> v1c`.
 
+`agx validate` writes deterministic gate evidence:
+
+```text
+data/validations/<validation_id>/validation.json
+```
+
+That record validates against `contracts/validation_record.schema.json` and
+captures scope, best candidate, validation score, and per-candidate gate
+results.
+
 The live system should use LLM calls for:
 
 - `generate`: propose new private scenarios/test cases

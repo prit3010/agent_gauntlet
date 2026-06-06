@@ -15,7 +15,7 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --llm-provider openai --llm-model gpt-5
-uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout
+uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout --validation-id val-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
 uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-data --out data/dashboard/demo-data.json
@@ -32,6 +32,8 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 `generate` writes `data/generations/<generation_id>/generation.json`.
 
 `train` writes `data/training/<training_id>/training.json`.
+
+`validate` writes `data/validations/<validation_id>/validation.json`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
@@ -72,6 +74,14 @@ are stored as:
 
 ```text
 data/training/<training_id>/training.json
+```
+
+`validate` evaluates the deterministic promotion gate over candidates and writes
+a validation record. Validation records validate against
+`contracts/validation_record.schema.json` and are stored as:
+
+```text
+data/validations/<validation_id>/validation.json
 ```
 
 `promote` selects the safest candidate and marks it as the next accepted

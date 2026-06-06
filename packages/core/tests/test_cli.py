@@ -61,7 +61,7 @@ class ParserTest(unittest.TestCase):
                 "--llm-model",
                 "gpt-5",
             ],
-            ["validate", "--heldout"],
+            ["validate", "--heldout", "--validation-id", "val-demo-001"],
             ["promote", "--if-pass"],
             ["export", "--target", "codex"],
             ["demo-data"],
@@ -455,7 +455,24 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(training_record["llm"]["model"], "gpt-5")
             self.assertEqual(training_record["request"]["candidates"], 3)
             self.assertEqual(training_record["candidates"][0]["candidateHarnessVersion"], "v1a")
-        validate = capture_stdout(cli.cmd_validate, argparse.Namespace(heldout=True))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            validation_root = Path(temp_dir) / "validations"
+            validate = capture_stdout(
+                cli.cmd_validate,
+                argparse.Namespace(
+                    heldout=True,
+                    validation_id="val-demo-001",
+                    output_root=str(validation_root),
+                ),
+            )
+            validation_path = validation_root / "val-demo-001" / "validation.json"
+            validation_record = json.loads(validation_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(validation_path.exists())
+            self.assertEqual(validation_record["validationId"], "val-demo-001")
+            self.assertEqual(validation_record["scope"], "heldout")
+            self.assertEqual(validation_record["bestCandidate"], "C")
+            self.assertTrue(validation_record["gateResults"]["C"]["passes"])
         promote = capture_stdout(cli.cmd_promote, argparse.Namespace(if_pass=True))
 
         self.assertIn("LLM patch generator: openai/gpt-5", train)
@@ -469,6 +486,7 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Wrote training record", train)
         self.assertIn("Held-out validation complete", validate)
         self.assertIn("Best candidate: C", validate)
+        self.assertIn("Wrote validation record", validate)
         self.assertIn("Promotion decision: deterministic gate", promote)
         self.assertIn("Promotion gate passed", promote)
         self.assertIn("New accepted harness: v2", promote)
@@ -569,6 +587,17 @@ class ContractShapeTest(unittest.TestCase):
                 llm_provider="openai",
                 llm_model="gpt-5",
             ),
+            data,
+        )
+
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(record)
+
+    def test_validation_record_validates_against_schema(self) -> None:
+        schema = json.loads(cli.VALIDATION_RECORD_SCHEMA.read_text(encoding="utf-8"))
+        data = cli.load_demo_data()
+        record = cli.build_validation_record(
+            argparse.Namespace(heldout=True, validation_id="val-schema-001"),
             data,
         )
 

@@ -17,12 +17,14 @@ AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
 RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
 GENERATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "generation_record.schema.json"
 TRAINING_RECORD_SCHEMA = REPO_ROOT / "contracts" / "training_record.schema.json"
+VALIDATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "validation_record.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
 DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "runs"
 DEFAULT_GENERATIONS_ROOT = REPO_ROOT / "data" / "generations"
 DEFAULT_TRAINING_ROOT = REPO_ROOT / "data" / "training"
+DEFAULT_VALIDATIONS_ROOT = REPO_ROOT / "data" / "validations"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -272,6 +274,10 @@ def _default_training_id() -> str:
     return datetime.now(UTC).strftime("train-%Y%m%d%H%M%SZ")
 
 
+def _default_validation_id() -> str:
+    return datetime.now(UTC).strftime("val-%Y%m%d%H%M%SZ")
+
+
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     agent_config = load_agent_config(getattr(args, "agent_config", None))
@@ -386,6 +392,30 @@ def write_training_record(record: dict[str, Any], output_root: Path) -> Path:
     training_dir.mkdir(parents=True, exist_ok=True)
     validate_json_schema(record, TRAINING_RECORD_SCHEMA)
     output = training_dir / "training.json"
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
+def build_validation_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
+    validation_id = getattr(args, "validation_id", None) or _default_validation_id()
+    gate_results = evaluate_candidate_gates(data)
+    promoted = next(patch for patch in data["candidatePatches"] if gate_results[patch["id"]]["passes"])
+    return {
+        "validationId": validation_id,
+        "createdAt": datetime.now(UTC).isoformat(),
+        "scope": "heldout" if args.heldout else "training",
+        "bestCandidate": promoted["id"],
+        "validationScore": promoted["validationScore"],
+        "gateResults": gate_results,
+        "status": "fixture_backed_interface",
+    }
+
+
+def write_validation_record(record: dict[str, Any], output_root: Path) -> Path:
+    validation_dir = output_root / record["validationId"]
+    validation_dir.mkdir(parents=True, exist_ok=True)
+    validate_json_schema(record, VALIDATION_RECORD_SCHEMA)
+    output = validation_dir / "validation.json"
     output.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return output
 
@@ -538,10 +568,14 @@ def cmd_validate(args: argparse.Namespace) -> None:
     data = load_demo_data()
     gate_results = evaluate_candidate_gates(data)
     promoted = next(patch for patch in data["candidatePatches"] if gate_results[patch["id"]]["passes"])
+    record = build_validation_record(args, data)
+    output_root = Path(getattr(args, "output_root", DEFAULT_VALIDATIONS_ROOT))
+    output = write_validation_record(record, output_root)
     scope = "Held-out" if args.heldout else "Training"
     print(f"{scope} validation complete. Best candidate: {promoted['id']}")
     print(f"Validation score: {promoted['validationScore']}")
     print(gate_results[promoted["id"]]["reason"])
+    print(f"Wrote validation record to {output}")
 
 
 def cmd_promote(args: argparse.Namespace) -> None:
@@ -661,6 +695,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help="Validate candidate harnesses.")
     validate.add_argument("--heldout", action="store_true")
+    validate.add_argument("--validation-id", default=None)
+    validate.add_argument("--output-root", default=str(DEFAULT_VALIDATIONS_ROOT))
     validate.set_defaults(func=cmd_validate)
 
     promote = subparsers.add_parser("promote", help="Promote the best candidate if gate checks pass.")
