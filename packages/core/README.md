@@ -11,9 +11,10 @@ Run commands from the repo root:
 ```bash
 uv run --python 3.12 --group dev python -m packages.core.agx.cli init ./sample-migration-agent
 uv run --python 3.12 --group dev python -m packages.core.agx.cli scan
+uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
-uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3
+uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
@@ -38,13 +39,16 @@ The intended optimization loop is:
 generate -> run -> train -> validate -> promote -> generate next
 ```
 
-`generate` is not implemented yet. For the current demo, generated scenarios are
-fixed teammate 2 fixtures under `packs/code_migration/scenarios/**`. Core should
-add the `generate` API after teammate 2's sample generated test cases define the
-scenario shape.
+`generate` now exposes the LLM scenario-generation boundary. It accepts
+`--llm-provider` and `--llm-model`, but the demo core does not make a live LLM
+call yet. For the current demo, generated scenarios are represented by fixed
+teammate 2 fixtures under `packs/code_migration/scenarios/**`. Once teammate 2's
+sample generated test cases define the scenario shape, this command should write
+generated scenario records through that contract.
 
 `run` evaluates a harness version. `train` creates candidate variants from the
-current accepted harness:
+current accepted harness. It also accepts `--llm-provider` and `--llm-model` as
+the future patch-generator interface:
 
 ```text
 v1 + Candidate A -> v1a
@@ -54,6 +58,16 @@ v1 + Candidate C -> v1c
 
 `promote` selects the safest candidate and marks it as the next accepted
 harness version. In the demo, Candidate C becomes `v2`.
+
+## LLM Boundary
+
+The intended live system uses an LLM in two places:
+
+- `generate`: propose new private scenarios/test cases for the current pack
+- `train`: propose candidate harness/meta-agent patches from run evidence
+
+`validate` and `promote` remain deterministic gate steps. A future LLM may
+summarize promotion rationale, but it should not bypass the promotion gate.
 
 ## Agent Config
 
@@ -150,7 +164,10 @@ Caps:
 
 ## Known Limitations
 
-The core is deterministic and fixture-backed. It does not execute an agent, apply patches, or run validators against a live migration. The runner, training, validation, and promotion commands report the structured demo data required for the hackathon flow.
+The core is deterministic and fixture-backed. It does not execute an agent, call
+an LLM, apply patches, or run validators against a live migration. The runner,
+training, validation, and promotion commands report the structured demo data
+required for the hackathon flow.
 
 Teammate 2 should provide additional scenario YAML files, validator descriptors, trace fixtures, and patch fixtures as they expand the migration pack.
 

@@ -28,6 +28,7 @@ class ParserTest(unittest.TestCase):
         for command in [
             "init",
             "scan",
+            "generate",
             "run",
             "trace",
             "train",
@@ -46,9 +47,10 @@ class ParserTest(unittest.TestCase):
         examples = [
             ["init", "./sample-migration-agent"],
             ["scan"],
+            ["generate", "--pack", "code_migration", "--scenarios", "3"],
             ["run", "--pack", "code_migration", "--scenarios", "12", "--round", "baseline"],
             ["trace", "pydantic_alias_regression_001"],
-            ["train", "--candidates", "3"],
+            ["train", "--candidates", "3", "--llm-provider", "openai", "--llm-model", "gpt-5"],
             ["validate", "--heldout"],
             ["promote", "--if-pass"],
             ["export", "--target", "codex"],
@@ -220,6 +222,22 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Pass rate: 4/12", output)
         self.assertIn("Critical failures: 4", output)
 
+    def test_generate_declares_llm_scenario_generation_boundary(self) -> None:
+        output = capture_stdout(
+            cli.cmd_generate,
+            argparse.Namespace(
+                pack="code_migration",
+                scenarios=3,
+                llm_provider="openai",
+                llm_model="gpt-5",
+            ),
+        )
+
+        self.assertIn("LLM scenario generator: openai/gpt-5", output)
+        self.assertIn("Scenarios requested: 3", output)
+        self.assertIn("teammate 2 scenario contract", output)
+        self.assertIn("No live LLM call is made by this demo core", output)
+
     def test_run_writes_history_record_and_history_commands_read_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             runs_root = Path(temp_dir) / "runs"
@@ -390,10 +408,14 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Agent Gauntlet flags the behavior", output)
 
     def test_train_validate_and_promote_show_candidate_c(self) -> None:
-        train = capture_stdout(cli.cmd_train, argparse.Namespace(candidates=3))
+        train = capture_stdout(
+            cli.cmd_train,
+            argparse.Namespace(candidates=3, llm_provider="openai", llm_model="gpt-5"),
+        )
         validate = capture_stdout(cli.cmd_validate, argparse.Namespace(heldout=True))
         promote = capture_stdout(cli.cmd_promote, argparse.Namespace(if_pass=True))
 
+        self.assertIn("LLM patch generator: openai/gpt-5", train)
         self.assertIn("Candidate A", train)
         self.assertIn("Candidate B", train)
         self.assertIn("Candidate C", train)
@@ -403,6 +425,7 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("promoted", train)
         self.assertIn("Held-out validation complete", validate)
         self.assertIn("Best candidate: C", validate)
+        self.assertIn("Promotion decision: deterministic gate", promote)
         self.assertIn("Promotion gate passed", promote)
         self.assertIn("New accepted harness: v2", promote)
 

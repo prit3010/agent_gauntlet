@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the deterministic Agent Gauntlet core lane for CLI, pack loading, scanning, scoring, promotion, export, and dashboard data contracts.
+**Goal:** Build the deterministic Agent Gauntlet core lane for CLI, pack loading, scanning, scoring, promotion, export, dashboard data contracts, and the non-live LLM interface boundary for future scenario/patch generation.
 
-**Architecture:** Keep the core boring and fixture-backed. `packages/core/agx/cli.py` remains the command entry point, with small pure helper functions for loading dashboard data, reading pack fixtures, calculating readiness, generating scanner output, checking the promotion gate, and exporting target manifests. `contracts/dashboard_data.schema.json` is the dashboard source of truth; `contracts/sample_dashboard_data.json` is the canonical demo fixture copied by `agx demo-data`.
+**Architecture:** Keep the core boring and fixture-backed. `packages/core/agx/cli.py` remains the command entry point, with small pure helper functions for loading dashboard data, reading pack fixtures, calculating readiness, generating scanner output, checking the promotion gate, and exporting target manifests. `generate` and `train` expose provider/model flags for future LLM executors, but this demo core does not make live LLM calls. `contracts/dashboard_data.schema.json` is the dashboard source of truth; `contracts/sample_dashboard_data.json` is the canonical demo fixture copied by `agx demo-data`.
 
 **Tech Stack:** Python 3.12 pinned with `uv`, `unittest`, `jsonschema` Draft 2020-12 validation, JSON Schema contract files, deterministic JSON/YAML-like fixtures from the repo.
 
@@ -54,6 +54,10 @@ init.add_argument("project_path", nargs="?", default="./sample-migration-agent")
 init.set_defaults(func=cmd_init)
 
 run.add_argument("--scenarios", type=int, default=12)
+generate.add_argument("--llm-provider", default="fixture")
+generate.add_argument("--llm-model", default="demo-fixture")
+train.add_argument("--llm-provider", default="fixture")
+train.add_argument("--llm-model", default="demo-fixture")
 validate.add_argument("--heldout", action="store_true")
 export.add_argument("--target", default="codex")
 ```
@@ -182,11 +186,12 @@ Commands should be deterministic and transparent:
 
 - `init`: summarize target project and expected core files without editing sample repo.
 - `scan`: print context map JSON.
+- `generate`: print the LLM scenario-generation boundary and teammate 2 scenario contract handoff without making a live LLM call.
 - `run`: summarize baseline or requested round from dashboard fixture and pack metadata.
 - `trace`: replay fixture-backed trace and include final Agent Gauntlet flag event.
-- `train`: show Candidate A/B/C and rejected/promoted status.
+- `train`: show the LLM patch-generation boundary, Candidate A/B/C, and rejected/promoted status.
 - `validate --heldout`: show held-out gate result for Candidate C.
-- `promote --if-pass`: evaluate the gate and print why Candidate C is promoted.
+- `promote --if-pass`: evaluate the deterministic gate and print why Candidate C is promoted.
 - `export --target codex`: write `data/exports/codex/manifest.json`.
 - `demo-data`: copy `contracts/sample_dashboard_data.json` to the requested output or default dashboard path.
 

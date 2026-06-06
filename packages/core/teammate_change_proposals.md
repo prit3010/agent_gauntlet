@@ -43,11 +43,12 @@ Please provide or confirm:
 - exact file-output log schema, if Migration Pilot already emits one
 - scenario fields that should be copied into run history
 - validator fields that should appear in promotion evidence
-- sample generated test cases that will define the future `agx generate` API
+- sample generated test cases that will define the persisted output shape for `agx generate`
 
-## 3a. Pending Generate API
+## 3a. LLM Generate/Train Boundary
 
-Core does not implement `generate` yet. The intended loop is:
+Core now exposes `agx generate` and LLM provider/model flags for `generate` and
+`train`, but it does not make live LLM calls yet. The intended loop is:
 
 ```text
 generate -> run -> train -> validate -> promote -> generate next
@@ -55,8 +56,16 @@ generate -> run -> train -> validate -> promote -> generate next
 
 For now, generated scenarios are represented by fixed teammate 2 fixtures under
 `packs/code_migration/scenarios/**`. After teammate 2's sample generated test
-cases land, core should expose an `agx generate` command/API that writes a
-generated scenario record and hands it to the pack/scenario contract.
+cases land, `agx generate` should write generated scenario records through the
+pack/scenario contract.
+
+The live system should use LLM calls for:
+
+- `generate`: propose new private scenarios/test cases
+- `train`: propose candidate harness/meta-agent patches
+
+`validate` and `promote` should remain deterministic. A future LLM may summarize
+promotion rationale, but the promotion gate must own the decision.
 
 ## 4. Teammate 3 Dashboard Requests
 

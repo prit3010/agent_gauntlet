@@ -390,6 +390,19 @@ def cmd_run(args: argparse.Namespace) -> None:
             print(f"Imported file-output log to {record['logs']['file_output']['imported_path']}")
 
 
+def _llm_label(args: argparse.Namespace) -> str:
+    return f"{args.llm_provider}/{args.llm_model}"
+
+
+def cmd_generate(args: argparse.Namespace) -> None:
+    pack = load_pack(args.pack)
+    print(f"LLM scenario generator: {_llm_label(args)}")
+    print(f"Pack: {pack['pack_id']} ({pack['name']})")
+    print(f"Scenarios requested: {args.scenarios}")
+    print(f"Output contract: teammate 2 scenario contract under {pack['pack_path']}/scenarios")
+    print("No live LLM call is made by this demo core; provider/model configure the future executor.")
+
+
 def cmd_trace(args: argparse.Namespace) -> None:
     data = load_demo_data()
     events = [event for event in data["traceEvents"] if event["scenarioId"] == args.scenario_id]
@@ -413,6 +426,7 @@ def cmd_trace(args: argparse.Namespace) -> None:
 
 def cmd_train(args: argparse.Namespace) -> None:
     data = load_demo_data()
+    print(f"LLM patch generator: {_llm_label(args)}")
     print(f"Candidate harness patches from deterministic training runs ({args.candidates} requested)")
     for patch in data["candidatePatches"][: args.candidates]:
         print(
@@ -447,6 +461,7 @@ def cmd_promote(args: argparse.Namespace) -> None:
     print(f"New accepted harness: {report['promotedHarnessVersion']}")
     print(f"Patch type: {promoted['patchType']}")
     print(f"Validation score: {promoted['validationScore']}")
+    print("Promotion decision: deterministic gate")
     for reason in report["whyPromoted"]:
         print(f"- {reason}")
     if args.if_pass and gate_results[promoted_id]["passes"]:
@@ -521,6 +536,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("project_path", nargs="?", default="./sample-migration-agent")
     scan.set_defaults(func=cmd_scan)
 
+    generate = subparsers.add_parser("generate", help="Generate candidate scenarios through the LLM boundary.")
+    generate.add_argument("--pack", default="code_migration")
+    generate.add_argument("--scenarios", type=int, default=3)
+    generate.add_argument("--llm-provider", default="fixture")
+    generate.add_argument("--llm-model", default="demo-fixture")
+    generate.set_defaults(func=cmd_generate)
+
     run = subparsers.add_parser("run", help="Run a gauntlet round and summarize harness results.")
     run.add_argument("--pack", default="code_migration")
     run.add_argument("--scenarios", type=int, default=12)
@@ -536,6 +558,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     train = subparsers.add_parser("train", help="Show candidate harness patches from training runs.")
     train.add_argument("--candidates", type=int, default=3)
+    train.add_argument("--llm-provider", default="fixture")
+    train.add_argument("--llm-model", default="demo-fixture")
     train.set_defaults(func=cmd_train)
 
     validate = subparsers.add_parser("validate", help="Validate candidate harnesses.")
