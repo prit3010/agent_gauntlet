@@ -1,0 +1,9 @@
+{
+  "agent": "codebase_migrator",
+  "version": "v1a",
+  "base_version": "v1",
+  "candidate_id": "A",
+  "status": "rejected",
+  "patch_type": "skill",
+  "source": "fixture_training_candidate"
+}

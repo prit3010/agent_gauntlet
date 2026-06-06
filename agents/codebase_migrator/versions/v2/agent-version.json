@@ -1,0 +1,9 @@
+{
+  "agent": "codebase_migrator",
+  "version": "v2",
+  "promoted_from": "v1c",
+  "candidate_id": "C",
+  "status": "accepted",
+  "patch_type": "task_prompt + skill + guardrail + validator",
+  "source": "fixture_promotion"
+}

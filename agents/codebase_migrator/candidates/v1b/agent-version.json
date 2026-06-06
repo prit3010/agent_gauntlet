@@ -1,0 +1,9 @@
+{
+  "agent": "codebase_migrator",
+  "version": "v1b",
+  "base_version": "v1",
+  "candidate_id": "B",
+  "status": "rejected",
+  "patch_type": "guardrail",
+  "source": "fixture_training_candidate"
+}

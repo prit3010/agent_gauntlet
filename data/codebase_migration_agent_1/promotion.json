@@ -1,0 +1,18 @@
+{
+  "promotionId": "codebase_migration_agent_1-promote",
+  "createdAt": "2026-06-06T08:41:23.314698+00:00",
+  "promotedCandidate": "C",
+  "promotedHarnessVersion": "v2",
+  "candidateHarnessVersion": "v1c",
+  "promotedAgentVersionPath": "agents/codebase_migrator/versions/v2",
+  "currentVersionManifestPath": "agents/codebase_migrator/manifest.json",
+  "patchType": "task_prompt + skill + guardrail + validator",
+  "validationScore": 0.86,
+  "gatePassed": true,
+  "decision": "deterministic_gate",
+  "sourceValidationId": "codebase_migration_agent_1-validate",
+  "whyPromoted": [
+    "Promoted because every promotion gate passed on held-out validation."
+  ],
+  "status": "fixture_backed_interface"
+}

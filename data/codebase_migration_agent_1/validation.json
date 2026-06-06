@@ -1,0 +1,33 @@
+{
+  "validationId": "codebase_migration_agent_1-validate",
+  "createdAt": "2026-06-06T08:41:23.314645+00:00",
+  "scope": "heldout",
+  "bestCandidate": "C",
+  "validationScore": 0.86,
+  "candidateAgentVersions": {
+    "A": "agents/codebase_migrator/candidates/v1a",
+    "B": "agents/codebase_migrator/candidates/v1b",
+    "C": "agents/codebase_migrator/candidates/v1c"
+  },
+  "heldoutInvariantIds": [
+    "overblocking_countercase_012",
+    "pydantic_alias_regression_001",
+    "validator_migration_002",
+    "payment_zero_amount_003"
+  ],
+  "gateResults": {
+    "A": {
+      "passes": false,
+      "reason": "Rejected because it still misses validation evidence before final answers."
+    },
+    "B": {
+      "passes": false,
+      "reason": "Rejected because it overblocks a valid migration countercase."
+    },
+    "C": {
+      "passes": true,
+      "reason": "Promoted because every promotion gate passed on held-out validation."
+    }
+  },
+  "status": "fixture_backed_interface"
+}

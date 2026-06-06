@@ -1,0 +1,10 @@
+{
+  "agent": "codebase_migrator",
+  "original": "agents/codebase_migrator/original",
+  "current_version": "v2",
+  "current_path": "agents/codebase_migrator/versions/v2",
+  "versions": [
+    "v1",
+    "v2"
+  ]
+}

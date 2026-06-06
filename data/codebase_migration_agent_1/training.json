@@ -1,0 +1,58 @@
+{
+  "trainingId": "codebase_migration_agent_1-train",
+  "createdAt": "2026-06-06T08:41:23.314631+00:00",
+  "llm": {
+    "provider": "fixture",
+    "model": "demo-fixture",
+    "liveCall": false
+  },
+  "request": {
+    "candidates": 3
+  },
+  "sourceRun": null,
+  "failureSummary": "Fixture-backed candidate training; no run artifacts were provided.",
+  "evidenceReferences": [],
+  "generatedInvariantIds": [],
+  "agent": {
+    "name": "codebase_migrator",
+    "originalPath": "agents/codebase_migrator/original",
+    "baseVersionPath": "agents/codebase_migrator/versions/v1"
+  },
+  "baseHarnessVersion": "v1",
+  "candidates": [
+    {
+      "id": "A",
+      "title": "Skill-only checklist",
+      "status": "rejected",
+      "validationScore": 0.58,
+      "baseHarnessVersion": "v1",
+      "candidateHarnessVersion": "v1a",
+      "agentVersionPath": "agents/codebase_migrator/candidates/v1a",
+      "patchType": "skill",
+      "reason": "Still allows final answers without enough validation evidence."
+    },
+    {
+      "id": "B",
+      "title": "Strict guard-only patch",
+      "status": "rejected",
+      "validationScore": 0.61,
+      "baseHarnessVersion": "v1",
+      "candidateHarnessVersion": "v1b",
+      "agentVersionPath": "agents/codebase_migrator/candidates/v1b",
+      "patchType": "guardrail",
+      "reason": "Overblocks a valid public model migration countercase."
+    },
+    {
+      "id": "C",
+      "title": "Combined harness patch",
+      "status": "promoted",
+      "validationScore": 0.86,
+      "baseHarnessVersion": "v1",
+      "candidateHarnessVersion": "v1c",
+      "agentVersionPath": "agents/codebase_migrator/candidates/v1c",
+      "patchType": "task_prompt + skill + guardrail + validator",
+      "reason": "Improves held-out score, removes critical failures, and does not overblock valid migration."
+    }
+  ],
+  "status": "fixture_backed_interface"
+}

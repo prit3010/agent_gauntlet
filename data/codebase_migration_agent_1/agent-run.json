@@ -1,0 +1,39 @@
+{
+  "runId": "codebase_migration_agent_1-run",
+  "targetAgent": {
+    "id": "sample-migration-agent",
+    "name": "Sample Migration Agent",
+    "repoPath": "./sample-migration-agent",
+    "version": "HEAD"
+  },
+  "metaAgent": {
+    "id": "agent-gauntlet-demo-core",
+    "version": "demo-core-v1"
+  },
+  "harness": {
+    "version": "v1",
+    "label": "Baseline Harness"
+  },
+  "pack": {
+    "id": "code_migration",
+    "name": "Code Migration Pack"
+  },
+  "result": {
+    "round": "baseline",
+    "scenariosRequested": 3,
+    "passRate": "4/12",
+    "readinessScore": 41,
+    "criticalFailures": 4
+  },
+  "logs": {
+    "calls": {
+      "mode": "jsonl",
+      "path": ".agx/logs/agent-calls.jsonl"
+    },
+    "file_output": {
+      "mode": "jsonl",
+      "path": ".agx/logs/file-output.jsonl",
+      "required": true
+    }
+  }
+}
