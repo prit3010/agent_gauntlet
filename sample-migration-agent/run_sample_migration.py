@@ -114,7 +114,9 @@ def load_runtime_contract(path: Path) -> dict[str, Any]:
                 subsection = "command"
                 continue
             if subsection == "command" and stripped.startswith("- "):
-                contract["entrypoint"]["command"].append(stripped.removeprefix("- ").strip())
+                contract["entrypoint"]["command"].append(
+                    stripped.removeprefix("- ").strip()
+                )
         elif section in {"inputs", "providers", "logging"} and ":" in stripped:
             key, value = stripped.split(":", 1)
             contract[section][key.strip()] = value.strip().strip('"')
@@ -241,7 +243,9 @@ def build_migration_map(context_map: dict[str, Any], task: str) -> dict[str, Any
     }
 
 
-def build_skill_calls(skills: list[dict[str, str]], migration_map: dict[str, Any]) -> list[dict[str, Any]]:
+def build_skill_calls(
+    skills: list[dict[str, str]], migration_map: dict[str, Any]
+) -> list[dict[str, Any]]:
     calls = []
     for skill in skills:
         calls.append(
@@ -338,7 +342,9 @@ def offline_llm_response(prompt: dict[str, Any]) -> dict[str, Any]:
 def call_openai_provider(prompt: dict[str, Any]) -> dict[str, Any]:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise ProviderConfigurationError("OPENAI_API_KEY is required for --provider openai")
+        raise ProviderConfigurationError(
+            "OPENAI_API_KEY is required for --provider openai"
+        )
 
     model = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
     body = {
@@ -361,7 +367,9 @@ def call_openai_provider(prompt: dict[str, Any]) -> dict[str, Any]:
         with request.urlopen(req, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
     except error.URLError as exc:
-        raise ProviderConfigurationError(f"OpenAI provider request failed: {exc}") from exc
+        raise ProviderConfigurationError(
+            f"OpenAI provider request failed: {exc}"
+        ) from exc
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -406,7 +414,9 @@ def codex_sdk_input(prompt: dict[str, Any]) -> str:
 
 def resolve_codex_sandbox(name: str) -> Any:
     if Sandbox is None:
-        raise ProviderConfigurationError("openai-codex Python package is required for --provider codex")
+        raise ProviderConfigurationError(
+            "openai-codex Python package is required for --provider codex"
+        )
 
     normalized = name.replace("-", "_")
     allowed = {
@@ -423,10 +433,14 @@ def resolve_codex_sandbox(name: str) -> Any:
 
 def call_codex_provider(prompt: dict[str, Any]) -> dict[str, Any]:
     if Codex is None or Sandbox is None:
-        raise ProviderConfigurationError("openai-codex Python package is required for --provider codex")
+        raise ProviderConfigurationError(
+            "openai-codex Python package is required for --provider codex"
+        )
 
     model = os.environ.get("OPENAI_CODEX_MODEL", DEFAULT_CODEX_MODEL)
-    sandbox = resolve_codex_sandbox(os.environ.get("OPENAI_CODEX_SANDBOX", "workspace_write"))
+    sandbox = resolve_codex_sandbox(
+        os.environ.get("OPENAI_CODEX_SANDBOX", "workspace_write")
+    )
     with Codex() as codex:
         thread = codex.thread_start(model=model, sandbox=sandbox)
         result = thread.run(codex_sdk_input(prompt))
@@ -496,7 +510,9 @@ def run_agent(
     event_log_path: Path,
     run_id: str,
 ) -> dict[str, Any]:
-    append_event(event_log_path, {"type": "agent_started", "run_id": run_id, "task": task})
+    append_event(
+        event_log_path, {"type": "agent_started", "run_id": run_id, "task": task}
+    )
     try:
         skills = load_migration_skills()
         for skill in skills:
@@ -540,7 +556,9 @@ def run_agent(
             project_path,
             migration_map["candidate_edit_targets"],
         )
-        applied_edit_files = changed_edit_targets(before_edit_targets, after_edit_targets)
+        applied_edit_files = changed_edit_targets(
+            before_edit_targets, after_edit_targets
+        )
         append_event(
             event_log_path,
             {
@@ -579,7 +597,11 @@ def run_agent(
 
         for command in context_map["test_commands"] if run_tests else []:
             append_event(event_log_path, {"type": "tests_started", "command": command})
-        test_results = run_test_commands(project_path, context_map["test_commands"]) if run_tests else []
+        test_results = (
+            run_test_commands(project_path, context_map["test_commands"])
+            if run_tests
+            else []
+        )
         for result in test_results:
             append_event(
                 event_log_path,
@@ -608,7 +630,11 @@ def run_agent(
         status = "not_applied"
         finish_event["reason"] = "provider_did_not_apply_edits"
     elif run_tests:
-        status = "validated" if all(result["exit_code"] == 0 for result in test_results) else "failed"
+        status = (
+            "validated"
+            if all(result["exit_code"] == 0 for result in test_results)
+            else "failed"
+        )
     elif applied_edit_files:
         status = "applied"
     finish_event["status"] = status
@@ -641,17 +667,21 @@ def check_public_api_aliases() -> list[str]:
     order = get_order_response()
 
     require(
-        user == {
+        user
+        == {
             "user_id": 123,
             "full_name": "Ada Lovelace",
             "created_at": "2026-01-01T09:30:00",
         },
         f"UserResponse leaked or changed public shape: {user}",
     )
-    require("id" not in user and "name" not in user, "UserResponse leaked internal fields")
+    require(
+        "id" not in user and "name" not in user, "UserResponse leaked internal fields"
+    )
 
     require(
-        order == {
+        order
+        == {
             "order_id": "ord_123",
             "user_id": 123,
             "total_cents": 2599,
@@ -671,7 +701,9 @@ def check_validation_semantics() -> list[str]:
             created_at=datetime(2026, 1, 1, 9, 30),
         )
     except ValidationError as exc:
-        require("full_name must not be blank" in str(exc), "blank full_name error changed")
+        require(
+            "full_name must not be blank" in str(exc), "blank full_name error changed"
+        )
     else:
         raise CheckFailed("blank full_name did not raise ValidationError")
 
@@ -698,7 +730,8 @@ def check_validation_semantics() -> list[str]:
         address=address,
     ).model_dump(by_alias=True, exclude_none=True)
     require(
-        payload["address"] == {
+        payload["address"]
+        == {
             "street_line_1": "1 Analytical Engine Way",
             "postal_code": "12345",
         },
@@ -716,16 +749,23 @@ def check_payment_semantics() -> list[str]:
         try:
             make_payment(user_id=123, amount=amount)
         except ValueError as exc:
-            require("greater than zero" in str(exc), f"payment error changed for {amount}")
+            require(
+                "greater than zero" in str(exc), f"payment error changed for {amount}"
+            )
         else:
             raise CheckFailed(f"payment amount {amount} did not raise ValueError")
 
     result = make_payment(user_id=123, amount=Decimal("12.50"))
     require(
-        result == PaymentResult(user_id=123, amount=Decimal("12.50"), status="authorized"),
+        result
+        == PaymentResult(user_id=123, amount=Decimal("12.50"), status="authorized"),
         f"positive payment result changed: {result}",
     )
-    return ["zero_payment_rejected", "negative_payment_rejected", "positive_payment_authorized"]
+    return [
+        "zero_payment_rejected",
+        "negative_payment_rejected",
+        "positive_payment_authorized",
+    ]
 
 
 def run_checks() -> dict:
