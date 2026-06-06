@@ -47,4 +47,19 @@ Provider modes:
 - `codex`: calls the configured Codex SDK command from `CODEX_SDK_COMMAND`.
 - `openai`: calls the OpenAI Responses API with `OPENAI_API_KEY`.
 
+For a local Codex CLI demo, configure the wrapper:
+
+```bash
+export CODEX_SDK_COMMAND="python3 sample-migration-agent/codex_sdk_wrapper.py --dangerously-skip-permissions"
+python3 sample-migration-agent/run_sample_migration.py --provider codex --run-tests
+```
+
+`--dangerously-skip-permissions` is local demo mode only. The wrapper maps it to the Codex CLI dangerous sandbox-bypass flag and should only be used against disposable target worktrees.
+
+If `codex` fails with a missing vendored binary, reinstall the local CLI:
+
+```bash
+npm install -g @openai/codex@latest
+```
+
 The agent writes JSONL telemetry to `.agentgauntlet/runs/<run_id>/agent-events.jsonl` by default. These are agent-claimed events such as `skill_used`, `llm_request`, `llm_response`, `patch_proposed`, and `tests_finished`; Agent Gauntlet should still independently capture stdout, stderr, diffs, exit code, and test output.

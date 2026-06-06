@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = PROJECT_ROOT / "run_sample_migration.py"
+WRAPPER_PATH = PROJECT_ROOT / "codex_sdk_wrapper.py"
 spec = importlib.util.spec_from_file_location("run_sample_migration", RUNNER_PATH)
 assert spec is not None
 runner = importlib.util.module_from_spec(spec)
@@ -93,3 +96,44 @@ def test_codex_provider_requires_sdk_configuration(tmp_path: Path, monkeypatch: 
         "status": "failed",
         "error": "CODEX_SDK_COMMAND is required for --provider codex",
     }
+
+
+def test_codex_wrapper_invokes_cli_with_dangerous_permission_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cli = tmp_path / "fake_codex_cli.py"
+    calls_path = tmp_path / "codex-call.json"
+    fake_cli.write_text(
+        "\n".join(
+            [
+                "from __future__ import annotations",
+                "import json",
+                "import pathlib",
+                "import sys",
+                f"calls_path = pathlib.Path({str(calls_path)!r})",
+                "calls_path.write_text(json.dumps({'argv': sys.argv[1:]}), encoding='utf-8')",
+                "print(json.dumps({'status': 'completed', 'summary': 'fake codex', 'patch_proposal': [], 'validation': []}))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_CLI_COMMAND", f"{sys.executable} {fake_cli}")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            WRAPPER_PATH,
+            "--dangerously-skip-permissions",
+        ],
+        input=json.dumps({"task": "Migrate", "context_map": {}, "migration_map": {}}),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["summary"] == "fake codex"
+    recorded = json.loads(calls_path.read_text(encoding="utf-8"))
+    assert recorded["argv"][0] == "exec"
+    assert "--dangerously-bypass-approvals-and-sandbox" in recorded["argv"]

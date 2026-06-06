@@ -72,6 +72,14 @@ The sample agent supports three provider modes:
 
 The demo should use `offline` for deterministic verification and `codex` when showing the real uploaded-agent shape.
 
+For local Codex CLI demos, the sample uses a wrapper command:
+
+```bash
+export CODEX_SDK_COMMAND="python3 sample-migration-agent/codex_sdk_wrapper.py --dangerously-skip-permissions"
+```
+
+The wrapper reads the agent prompt JSON from stdin, calls `codex exec`, and returns the JSON response expected by the sample migration agent. The `--dangerously-skip-permissions` wrapper flag maps to Codex CLI's dangerous sandbox-bypass flag and is only acceptable for disposable local demo worktrees. It must not be the default runtime mode for uploaded agents.
+
 ## Generic Command Generation
 
 Generic command generation follows this flow:
