@@ -1,0 +1,44 @@
+{
+  "agent": {
+    "id": "sample-migration-agent",
+    "name": "Sample Migration Agent",
+    "repo_path": "./sample-migration-agent",
+    "entrypoint": {
+      "type": "command",
+      "command": "configure-me"
+    }
+  },
+  "logs": {
+    "calls": {
+      "mode": "jsonl",
+      "path": ".agx/logs/agent-calls.jsonl"
+    },
+    "file_output": {
+      "mode": "jsonl",
+      "path": ".agx/logs/file-output.jsonl",
+      "required": true
+    }
+  },
+  "versions": {
+    "source": "git",
+    "current_ref": "HEAD"
+  },
+  "validation": {
+    "commands": [
+      "pytest tests/test_api_contract.py",
+      "pytest tests/test_payments.py",
+      "pytest"
+    ]
+  },
+  "permissions": {
+    "protected_paths": [
+      "tests/fixtures/",
+      "docs/api_contract.md",
+      "src/app/auth/"
+    ]
+  },
+  "metadata": {
+    "domain_pack": "code_migration",
+    "log_contract": "agent must write file-output events to logs.file_output.path"
+  }
+}

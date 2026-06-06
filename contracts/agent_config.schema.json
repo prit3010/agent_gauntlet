@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-gauntlet.local/contracts/agent_config.schema.json",
+  "title": "Agent Gauntlet Agent Config",
+  "type": "object",
+  "required": ["agent", "logs", "versions", "validation", "permissions", "metadata"],
+  "properties": {
+    "agent": {
+      "type": "object",
+      "required": ["id", "name", "repo_path", "entrypoint"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "repo_path": { "type": "string", "minLength": 1 },
+        "entrypoint": {
+          "type": "object",
+          "required": ["type", "command"],
+          "properties": {
+            "type": { "type": "string" },
+            "command": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "required": ["calls", "file_output"],
+      "properties": {
+        "calls": {
+          "type": "object",
+          "required": ["mode", "path"],
+          "properties": {
+            "mode": { "type": "string" },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "file_output": {
+          "type": "object",
+          "required": ["mode", "path", "required"],
+          "properties": {
+            "mode": { "type": "string" },
+            "path": { "type": "string", "minLength": 1 },
+            "required": { "const": true }
+          }
+        }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "required": ["source", "current_ref"],
+      "properties": {
+        "source": { "type": "string" },
+        "current_ref": { "type": "string" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "required": ["protected_paths"],
+      "properties": {
+        "protected_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["domain_pack", "log_contract"],
+      "properties": {
+        "domain_pack": { "type": "string" },
+        "log_contract": { "type": "string" }
+      }
+    }
+  }
+}

@@ -7,11 +7,13 @@
   "properties": {
     "overview": {
       "type": "object",
-      "required": ["product", "currentHarness", "readinessScore", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "regressionTestsAdded"],
+      "required": ["product", "tagline", "currentHarness", "readinessScore", "readinessFormula", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "regressionTestsAdded"],
       "properties": {
         "product": { "type": "string" },
+        "tagline": { "type": "string" },
         "currentHarness": { "type": "string" },
         "readinessScore": { "type": "number" },
+        "readinessFormula": { "type": "string" },
         "passRate": { "type": "string" },
         "criticalFailures": { "type": "integer" },
         "apiRegressions": { "type": "integer" },
@@ -23,11 +25,22 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "label", "readinessScore", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "prematureFinalAnswers"],
+        "required": ["id", "label", "readinessScore", "readinessInputs", "passRate", "criticalFailures", "apiRegressions", "testWeakeningAttempts", "prematureFinalAnswers"],
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string" },
           "readinessScore": { "type": "number" },
+          "readinessInputs": {
+            "type": "object",
+            "required": ["passRate", "criticalSafetyScore", "validationEvidenceScore", "minimalDiffScore", "costStabilityScore"],
+            "properties": {
+              "passRate": { "type": "number" },
+              "criticalSafetyScore": { "type": "number" },
+              "validationEvidenceScore": { "type": "number" },
+              "minimalDiffScore": { "type": "number" },
+              "costStabilityScore": { "type": "number" }
+            }
+          },
           "passRate": { "type": "string" },
           "criticalFailures": { "type": "integer" },
           "apiRegressions": { "type": "integer" },
@@ -55,7 +68,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["scenarioId", "step", "eventType", "summary", "severity"],
+        "required": ["scenarioId", "step", "eventType", "summary", "severity", "evaluatorEvidence"],
         "properties": {
           "scenarioId": { "type": "string" },
           "step": { "type": "integer" },
@@ -66,7 +79,8 @@
           "flags": {
             "type": "array",
             "items": { "type": "string" }
-          }
+          },
+          "evaluatorEvidence": { "type": "string" }
         }
       }
     },
@@ -74,15 +88,29 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "title", "patchType", "status", "validationScore", "reason"],
+        "required": ["id", "title", "baseHarnessVersion", "candidateHarnessVersion", "patchType", "status", "validationScore", "reason", "gateResults"],
         "properties": {
           "id": { "type": "string" },
           "title": { "type": "string" },
+          "baseHarnessVersion": { "type": "string" },
+          "candidateHarnessVersion": { "type": "string" },
           "patchType": { "type": "string" },
           "status": { "type": "string" },
           "validationScore": { "type": "number" },
           "reason": { "type": "string" },
-          "diffSummary": { "type": "array", "items": { "type": "string" } }
+          "diffSummary": { "type": "array", "items": { "type": "string" } },
+          "gateResults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["gate", "passed", "evidence"],
+              "properties": {
+                "gate": { "type": "string" },
+                "passed": { "type": "boolean" },
+                "evidence": { "type": "string" }
+              }
+            }
+          }
         }
       }
     },
@@ -101,9 +129,35 @@
     },
     "promotionReport": {
       "type": "object",
-      "required": ["promotedCandidate", "whyPromoted", "remainingGaps"],
+      "required": ["promotedCandidate", "promotedHarnessVersion", "promotionGate", "whyPromoted", "remainingGaps"],
       "properties": {
         "promotedCandidate": { "type": "string" },
+        "promotedHarnessVersion": { "type": "string" },
+        "promotionGate": {
+          "type": "object",
+          "required": [
+            "validation_score_improves_by_at_least",
+            "critical_failures_do_not_increase",
+            "public_api_regressions",
+            "test_deletion_failures",
+            "test_weakening_failures",
+            "protected_file_violations",
+            "happy_path_regressions",
+            "cost_increase_below",
+            "changed_file_count_below"
+          ],
+          "properties": {
+            "validation_score_improves_by_at_least": { "type": "number" },
+            "critical_failures_do_not_increase": { "type": "boolean" },
+            "public_api_regressions": { "type": "integer" },
+            "test_deletion_failures": { "type": "integer" },
+            "test_weakening_failures": { "type": "integer" },
+            "protected_file_violations": { "type": "integer" },
+            "happy_path_regressions": { "type": "integer" },
+            "cost_increase_below": { "type": "number" },
+            "changed_file_count_below": { "type": "integer" }
+          }
+        },
         "whyPromoted": { "type": "array", "items": { "type": "string" } },
         "remainingGaps": { "type": "array", "items": { "type": "string" } }
       }

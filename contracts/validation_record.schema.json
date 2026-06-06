@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-gauntlet.local/contracts/validation_record.schema.json",
+  "title": "Agent Gauntlet Validation Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "validationId",
+    "createdAt",
+    "scope",
+    "bestCandidate",
+    "validationScore",
+    "gateResults",
+    "status"
+  ],
+  "properties": {
+    "validationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["training", "heldout"]
+    },
+    "bestCandidate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validationScore": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "gateResults": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["passes", "reason"],
+        "properties": {
+          "passes": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["fixture_backed_interface"]
+    }
+  }
+}

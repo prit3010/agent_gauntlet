@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-gauntlet.local/contracts/run_record.schema.json",
+  "title": "Agent Gauntlet Run Record",
+  "type": "object",
+  "required": ["runId", "targetAgent", "metaAgent", "harness", "pack", "result", "logs"],
+  "properties": {
+    "runId": { "type": "string", "minLength": 1 },
+    "targetAgent": {
+      "type": "object",
+      "required": ["id", "name", "repoPath", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "repoPath": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "metaAgent": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "harness": {
+      "type": "object",
+      "required": ["version", "label"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "pack": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["round", "scenariosRequested", "passRate", "readinessScore", "criticalFailures"],
+      "properties": {
+        "round": { "type": "string", "minLength": 1 },
+        "scenariosRequested": { "type": "integer" },
+        "passRate": { "type": "string", "minLength": 1 },
+        "readinessScore": { "type": "number" },
+        "criticalFailures": { "type": "integer" }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "required": ["calls", "file_output"],
+      "properties": {
+        "calls": {
+          "type": "object",
+          "required": ["mode", "path"],
+          "properties": {
+            "mode": { "type": "string" },
+            "path": { "type": "string" }
+          }
+        },
+        "file_output": {
+          "type": "object",
+          "required": ["mode", "path", "required"],
+          "properties": {
+            "mode": { "type": "string" },
+            "path": { "type": "string" },
+            "required": { "const": true },
+            "imported": { "type": "boolean" },
+            "imported_path": {
+              "anyOf": [
+                { "type": "string" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
