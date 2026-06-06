@@ -102,6 +102,8 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli history --meta-
 uv run --python 3.12 --group dev python -m packages.core.agx.cli show <run_id>
 ```
 
+`show` reports whether the configured file-output log was imported for that run.
+
 ## Data Contract
 
 `contracts/dashboard_data.schema.json` is the source of truth for teammate 3 dashboard data. The canonical fixture is `contracts/sample_dashboard_data.json`.

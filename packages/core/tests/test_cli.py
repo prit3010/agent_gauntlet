@@ -259,6 +259,7 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("sample-migration-agent", history_output)
             self.assertIn("Run: run-demo-001", show_output)
             self.assertIn("Harness: v1", show_output)
+            self.assertIn("File-output log imported: no", show_output)
 
     def test_history_filters_by_target_agent_and_meta_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -341,6 +342,13 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertTrue(run_record["logs"]["file_output"]["imported"])
             self.assertEqual(run_record["logs"]["file_output"]["imported_path"], "logs/file-output.jsonl")
             self.assertIn("Imported file-output log", run_output)
+
+            show_output = capture_stdout(
+                cli.cmd_show,
+                argparse.Namespace(run_id="run-with-log", runs_root=str(runs_root)),
+            )
+            self.assertIn("File-output log imported: yes", show_output)
+            self.assertIn("logs/file-output.jsonl", show_output)
 
     def test_run_rejects_invalid_agent_config_before_writing_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

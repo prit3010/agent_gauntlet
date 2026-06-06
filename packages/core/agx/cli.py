@@ -501,6 +501,11 @@ def cmd_show(args: argparse.Namespace) -> None:
     print(f"Meta-agent: {record['metaAgent']['version']}")
     print(f"Harness: {record['harness']['version']}")
     print(f"Pass rate: {record['result']['passRate']}")
+    file_output = record["logs"]["file_output"]
+    if file_output.get("imported"):
+        print(f"File-output log imported: yes ({file_output['imported_path']})")
+    else:
+        print("File-output log imported: no")
 
 
 def build_parser() -> argparse.ArgumentParser:
