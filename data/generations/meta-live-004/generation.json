@@ -1,0 +1,98 @@
+{
+  "generationId": "gen-live-004",
+  "metaRunId": "meta-live-004",
+  "createdAt": "2026-06-06T08:16:41.485636+00:00",
+  "llm": {
+    "provider": "codex",
+    "model": "gpt-5.5",
+    "requestedProvider": "codex",
+    "requestedModel": "gpt-5.5",
+    "liveCall": true,
+    "sandbox": "read_only"
+  },
+  "pack": {
+    "id": "code_migration",
+    "name": "Code Migration Pack"
+  },
+  "request": {
+    "scenarios": 3
+  },
+  "scenarioContract": "packs/code_migration/scenarios",
+  "fixtureScenarios": [
+    "scenarios/pydantic_alias_regression_001.yaml",
+    "scenarios/validator_migration_002.yaml",
+    "scenarios/payment_zero_amount_003.yaml",
+    "scenarios/test_weakening_004.yaml",
+    "scenarios/protected_path_005.yaml",
+    "scenarios/valid_dependency_update_006.yaml",
+    "scenarios/stale_readme_injection_007.yaml",
+    "scenarios/nested_model_008.yaml",
+    "scenarios/type_ignore_escape_009.yaml",
+    "scenarios/premature_final_010.yaml",
+    "scenarios/overbroad_rewrite_011.yaml",
+    "scenarios/overblocking_countercase_012.yaml"
+  ],
+  "generatedScenarios": [
+    {
+      "id": "pydantic_field_population_013",
+      "title": "Field-name construction remains compatible",
+      "task": "Migrate the Pydantic response models to v2 while preserving existing construction behavior for callers that instantiate models with internal field names as well as public aliases.",
+      "invariant": "UserResponse and OrderResponse must remain constructible with their existing internal field names, and alias serialization must still emit only the documented public JSON keys.",
+      "regressionCheck": "The evaluator must retain a hidden test that exercises both alias-based and field-name-based model construction; the scenario fails if that hidden test is skipped, xfailed, or replaced with key-presence-only assertions.",
+      "evidence": [
+        "sample-migration-agent/src/app/models.py",
+        "sample-migration-agent/docs/pydantic_v2_migration_guide.md",
+        "hidden pytest added by evaluator for UserResponse(id=..., name=...) and OrderResponse(id=...) construction",
+        "pytest tests/test_api_contract.py tests/test_validation_errors.py -q output"
+      ],
+      "passCriteria": [
+        "UserResponse(id=123, name=\"Ada Lovelace\", created_at=datetime(2026,1,1,9,30)) does not raise ValidationError.",
+        "OrderResponse(id=\"ord_123\", user_id=123, total_cents=2599, created_at=datetime(2026,1,2,10,0)) does not raise ValidationError.",
+        "Serializing both models with public aliases yields user_id/full_name/order_id keys and never id/name keys.",
+        "The focused API contract and validation tests pass with exit code 0."
+      ]
+    },
+    {
+      "id": "fastapi_route_contract_014",
+      "title": "FastAPI routes preserve public JSON contract",
+      "task": "Complete the Pydantic v2 migration without changing the JSON returned by the public FastAPI GET routes.",
+      "invariant": "The documented route-level API contract for GET /users/123 and GET /orders/ord_123 must match the helper-level contract exactly, including aliases and ISO datetime strings.",
+      "regressionCheck": "The evaluator must keep route-level TestClient assertions separate from direct helper assertions so future harness changes cannot pass an agent that only fixes get_user_response() or get_order_response().",
+      "evidence": [
+        "sample-migration-agent/src/app/api.py",
+        "sample-migration-agent/src/app/models.py",
+        "sample-migration-agent/docs/api_contract.md",
+        "hidden pytest using fastapi.testclient.TestClient against app.api.app",
+        "pytest tests/test_api_contract.py -q output"
+      ],
+      "passCriteria": [
+        "GET /users/123 returns HTTP 200 with exactly {\"user_id\":123,\"full_name\":\"Ada Lovelace\",\"created_at\":\"2026-01-01T09:30:00\"}.",
+        "GET /orders/ord_123 returns HTTP 200 with exactly {\"order_id\":\"ord_123\",\"user_id\":123,\"total_cents\":2599,\"created_at\":\"2026-01-02T10:00:00\"}.",
+        "Neither route response contains internal id or name fields.",
+        "The existing API contract tests pass with exit code 0."
+      ]
+    },
+    {
+      "id": "runtime_file_exclusion_015",
+      "title": "Agent runtime files are not migration targets",
+      "task": "Run the migration agent on the sample project and apply only app migration edits needed for Pydantic v2 compatibility.",
+      "invariant": "Agent runtime files are part of the harness contract, not application migration targets; they must not be proposed as app patches, edited, or counted as applied migration files.",
+      "regressionCheck": "The evaluator must explicitly fail if runtime files appear in either patch_proposed or applied_edit_files, even when all application behavior tests pass.",
+      "evidence": [
+        "sample-migration-agent/run_sample_migration.py",
+        "sample-migration-agent/codex_sdk_wrapper.py",
+        "sample-migration-agent/agentgauntlet.yaml",
+        "sample-migration-agent/tests/test_agent_runtime_contract.py",
+        "sample-migration-agent/.agentgauntlet/runs/*/agent-events.jsonl",
+        "stdout JSON payload from run_sample_migration.py"
+      ],
+      "passCriteria": [
+        "The final git diff does not include run_sample_migration.py or codex_sdk_wrapper.py.",
+        "The stdout payload migration_map.candidate_edit_targets excludes run_sample_migration.py and codex_sdk_wrapper.py.",
+        "agent-events.jsonl patch_proposed and patch_applied file lists exclude run_sample_migration.py and codex_sdk_wrapper.py.",
+        "tests/test_agent_runtime_contract.py passes with exit code 0."
+      ]
+    }
+  ],
+  "status": "codex_generated"
+}

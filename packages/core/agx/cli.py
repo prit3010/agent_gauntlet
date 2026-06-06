@@ -9,6 +9,18 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from packages.core.agx.codex_scenario_generator import (
+    CodexGenerationError,
+    build_codex_generation_prompt,
+    call_codex_scenario_generator,
+    codex_configuration_issue,
+)
+
+try:
+    from openai_codex import Codex, Sandbox
+except ImportError:
+    Codex = None  # type: ignore[assignment]
+    Sandbox = None  # type: ignore[assignment]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_DATA = REPO_ROOT / "contracts" / "sample_dashboard_data.json"
@@ -16,6 +28,7 @@ SCHEMA_DATA = REPO_ROOT / "contracts" / "dashboard_data.schema.json"
 AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
 RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
 GENERATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "generation_record.schema.json"
+GENERATION_PROMPT = REPO_ROOT / "packages" / "core" / "prompts" / "generate_agent_eval_scenarios.md"
 TRAINING_RECORD_SCHEMA = REPO_ROOT / "contracts" / "training_record.schema.json"
 VALIDATION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "validation_record.schema.json"
 PROMOTION_RECORD_SCHEMA = REPO_ROOT / "contracts" / "promotion_record.schema.json"
@@ -407,16 +420,74 @@ def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
     return output
 
 
-def build_generation_record(args: argparse.Namespace, pack: dict[str, Any]) -> dict[str, Any]:
+def build_fixture_scenario_records(pack: dict[str, Any], count: int) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for scenario_path in pack.get("scenarios", [])[:count]:
+        scenario_id = Path(scenario_path).stem
+        records.append(
+            {
+                "id": scenario_id,
+                "title": scenario_id.replace("_", " ").title(),
+                "task": "Run the code migration agent on the fixture scenario.",
+                "invariant": "The target agent must preserve the behavior described by the fixture.",
+                "evidence": [scenario_path],
+                "passCriteria": [f"Scenario fixture {scenario_path} passes its deterministic evaluator."],
+                "regressionCheck": "Keep the fixture active so future harness changes cannot weaken this behavior.",
+            }
+        )
+    return records
+
+
+def build_generation_request(args: argparse.Namespace, pack: dict[str, Any]) -> dict[str, Any]:
+    target_project = getattr(args, "target_project", "./sample-migration-agent")
+    context_map = build_context_map(Path(target_project).resolve(), pack["pack_id"])
+    return {
+        "pack": {
+            "id": pack["pack_id"],
+            "name": pack["name"],
+            "path": pack["pack_path"],
+        },
+        "targetProject": target_project,
+        "contextMap": context_map,
+        "scenarioCount": args.scenarios,
+        "fixtureScenarios": pack.get("scenarios", []),
+        "traceFixtures": pack.get("trace_fixtures", []),
+        "patchFixtures": pack.get("patch_fixtures", []),
+    }
+
+
+def build_generation_record(
+    args: argparse.Namespace,
+    pack: dict[str, Any],
+    *,
+    generated_scenarios: list[dict[str, Any]] | None = None,
+    effective_provider: str | None = None,
+    effective_model: str | None = None,
+    live_call: bool = False,
+    status: str = "fixture_backed_interface",
+    sandbox: str | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
     generation_id = getattr(args, "generation_id", None) or _default_generation_id()
+    meta_run_id = getattr(args, "meta_run_id", None) or generation_id
+    requested_provider = args.llm_provider
+    requested_model = args.llm_model
+    llm = {
+        "provider": effective_provider or requested_provider,
+        "model": effective_model or requested_model,
+        "requestedProvider": requested_provider,
+        "requestedModel": requested_model,
+        "liveCall": live_call,
+    }
+    if sandbox:
+        llm["sandbox"] = sandbox
+    if fallback_reason:
+        llm["fallbackReason"] = fallback_reason
     return {
         "generationId": generation_id,
+        "metaRunId": meta_run_id,
         "createdAt": datetime.now(UTC).isoformat(),
-        "llm": {
-            "provider": args.llm_provider,
-            "model": args.llm_model,
-            "liveCall": False,
-        },
+        "llm": llm,
         "pack": {
             "id": pack["pack_id"],
             "name": pack["name"],
@@ -426,12 +497,17 @@ def build_generation_record(args: argparse.Namespace, pack: dict[str, Any]) -> d
         },
         "scenarioContract": f"{pack['pack_path']}/scenarios",
         "fixtureScenarios": pack.get("scenarios", []),
-        "status": "fixture_backed_interface",
+        "generatedScenarios": (
+            generated_scenarios
+            if generated_scenarios is not None
+            else build_fixture_scenario_records(pack, args.scenarios)
+        ),
+        "status": status,
     }
 
 
 def write_generation_record(record: dict[str, Any], output_root: Path) -> Path:
-    generation_dir = output_root / record["generationId"]
+    generation_dir = output_root / record["metaRunId"]
     generation_dir.mkdir(parents=True, exist_ok=True)
     validate_json_schema(record, GENERATION_RECORD_SCHEMA)
     output = generation_dir / "generation.json"
@@ -624,6 +700,7 @@ def cmd_meta_run(args: argparse.Namespace) -> None:
             pack=args.pack,
             scenarios=args.scenarios,
             generation_id=f"{meta_run_id}-generate",
+            meta_run_id=meta_run_id,
             llm_provider=args.llm_provider,
             llm_model=args.llm_model,
         ),
@@ -713,14 +790,63 @@ def _llm_label(args: argparse.Namespace) -> str:
 
 def cmd_generate(args: argparse.Namespace) -> None:
     pack = load_pack(args.pack)
-    record = build_generation_record(args, pack)
+    generated_scenarios: list[dict[str, Any]] | None = None
+    effective_provider = args.llm_provider
+    effective_model = args.llm_model
+    live_call = False
+    status = "fixture_backed_interface"
+    sandbox = None
+    fallback_reason = None
+
+    if args.llm_provider == "codex":
+        issue = codex_configuration_issue(Codex, Sandbox)
+        if issue:
+            effective_provider = "fixture"
+            effective_model = "demo-fixture"
+            fallback_reason = f"Codex SDK/key not configured: {issue}"
+            generated_scenarios = build_fixture_scenario_records(pack, args.scenarios)
+        else:
+            generation_request = build_generation_request(args, pack)
+            prompt = build_codex_generation_prompt(
+                prompt_path=GENERATION_PROMPT,
+                request=generation_request,
+            )
+            try:
+                generated_scenarios = call_codex_scenario_generator(
+                    codex_cls=Codex,
+                    sandbox_cls=Sandbox,
+                    model=args.llm_model,
+                    prompt=prompt,
+                )[: args.scenarios]
+            except CodexGenerationError as exc:
+                raise SystemExit(f"Codex scenario generation failed: {exc}") from exc
+            live_call = True
+            status = "codex_generated"
+            sandbox = "read_only"
+
+    record = build_generation_record(
+        args,
+        pack,
+        generated_scenarios=generated_scenarios,
+        effective_provider=effective_provider,
+        effective_model=effective_model,
+        live_call=live_call,
+        status=status,
+        sandbox=sandbox,
+        fallback_reason=fallback_reason,
+    )
     output_root = Path(getattr(args, "output_root", DEFAULT_GENERATIONS_ROOT))
     output = write_generation_record(record, output_root)
     print(f"LLM scenario generator: {_llm_label(args)}")
     print(f"Pack: {pack['pack_id']} ({pack['name']})")
     print(f"Scenarios requested: {args.scenarios}")
     print(f"Output contract: teammate 2 scenario contract under {pack['pack_path']}/scenarios")
-    print("No live LLM call is made by this demo core; provider/model configure the future executor.")
+    if live_call:
+        print("Codex scenario generator ran in read-only sandbox.")
+    elif fallback_reason:
+        print("Codex SDK/key not configured; used fixture scenarios.")
+    else:
+        print("No live LLM call is made by this demo core; provider/model configure the future executor.")
     print(f"Wrote generation record to {output}")
 
 
@@ -883,7 +1009,9 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--pack", default="code_migration")
     generate.add_argument("--scenarios", type=int, default=3)
     generate.add_argument("--generation-id", default=None)
+    generate.add_argument("--meta-run-id", default=None)
     generate.add_argument("--output-root", default=str(DEFAULT_GENERATIONS_ROOT))
+    generate.add_argument("--target-project", default="./sample-migration-agent")
     generate.add_argument("--llm-provider", default="fixture")
     generate.add_argument("--llm-model", default="demo-fixture")
     generate.set_defaults(func=cmd_generate)

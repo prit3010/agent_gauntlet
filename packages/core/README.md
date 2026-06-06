@@ -11,7 +11,7 @@ Run commands from the repo root:
 ```bash
 uv run --python 3.12 --group dev python -m packages.core.agx.cli init ./sample-migration-agent
 uv run --python 3.12 --group dev python -m packages.core.agx.cli scan
-uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --generation-id gen-demo-001 --llm-provider openai --llm-model gpt-5
+uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --generation-id gen-demo-001 --meta-run-id codebase_migration_agent_1 --llm-provider codex --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --agent-name codebase_migrator --llm-provider openai --llm-model gpt-5
@@ -30,7 +30,7 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 `demo-data` copies `contracts/sample_dashboard_data.json` to the requested output. The dashboard-facing default path is `apps/dashboard/public/demo-data.json`, but teammate 1 verification should use `--out data/dashboard/demo-data.json` to avoid editing outside owned paths.
 
-`generate` writes `data/generations/<generation_id>/generation.json`.
+`generate` writes `data/generations/<meta_run_id>/generation.json`.
 
 `train` writes `data/training/<training_id>/training.json`.
 
@@ -54,18 +54,19 @@ Terminology follows `docs/product/glossary.md`: `run` means one target-agent
 execution; `meta run` means Agent Gauntlet running the full optimization loop
 around a target agent.
 
-`generate` now exposes the LLM scenario-generation boundary. It accepts
-`--llm-provider` and `--llm-model`, but the demo core does not make a live LLM
-call yet. The saved future prompt is
-`packages/core/prompts/generate_agent_eval_scenarios.md`. For the current demo,
-generated scenarios are represented by fixed teammate 2 fixtures under
-`packs/code_migration/scenarios/**`.
+`generate` now exposes the LLM scenario-generation boundary. When
+`--llm-provider codex` is configured with the Codex SDK and API key, the core
+starts a Codex meta-agent thread with `Sandbox.read_only`, uses
+`packages/core/prompts/generate_agent_eval_scenarios.md`, and persists only
+structured scenario records. If the SDK or key is not configured, the command
+falls back to the fixed teammate 2 fixtures under `packs/code_migration/scenarios/**`
+so demos and tests stay deterministic.
 
 Generation records validate against `contracts/generation_record.schema.json`
 and are stored as:
 
 ```text
-data/generations/<generation_id>/generation.json
+data/generations/<meta_run_id>/generation.json
 ```
 
 `run` evaluates one target-agent execution. `train` creates candidate target

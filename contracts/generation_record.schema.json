@@ -6,16 +6,22 @@
   "additionalProperties": false,
   "required": [
     "generationId",
+    "metaRunId",
     "createdAt",
     "llm",
     "pack",
     "request",
     "scenarioContract",
     "fixtureScenarios",
+    "generatedScenarios",
     "status"
   ],
   "properties": {
     "generationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metaRunId": {
       "type": "string",
       "minLength": 1
     },
@@ -26,7 +32,7 @@
     "llm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "model", "liveCall"],
+      "required": ["provider", "model", "requestedProvider", "requestedModel", "liveCall"],
       "properties": {
         "provider": {
           "type": "string",
@@ -36,8 +42,24 @@
           "type": "string",
           "minLength": 1
         },
+        "requestedProvider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestedModel": {
+          "type": "string",
+          "minLength": 1
+        },
         "liveCall": {
           "type": "boolean"
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": ["read_only"]
+        },
+        "fallbackReason": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -78,9 +100,64 @@
         "minLength": 1
       }
     },
+    "generatedScenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "task",
+          "invariant",
+          "evidence",
+          "passCriteria",
+          "regressionCheck"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "invariant": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "passCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "regressionCheck": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "status": {
       "type": "string",
-      "enum": ["fixture_backed_interface"]
+      "enum": ["fixture_backed_interface", "codex_generated"]
     }
   }
 }
