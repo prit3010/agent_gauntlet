@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import difflib
+import hashlib
 import json
+import subprocess
 import shutil
+import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jsonschema import Draft202012Validator
 
 from packages.core.agx.codex_scenario_generator import (
@@ -42,6 +48,7 @@ DEFAULT_VALIDATIONS_ROOT = REPO_ROOT / "data" / "validations"
 DEFAULT_PROMOTIONS_ROOT = REPO_ROOT / "data" / "promotions"
 DEFAULT_META_RUNS_ROOT = REPO_ROOT / "data"
 DEFAULT_AGENTS_ROOT = REPO_ROOT / "agents"
+LIVE_RUN_EXCLUDED_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".agentgauntlet"}
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -115,6 +122,13 @@ def load_pack(pack_id: str) -> dict[str, Any]:
         for path in (pack_path.parent / "patches").glob("*.diff")
     )
     return pack
+
+
+def load_agent_manifest(manifest_path: Path) -> dict[str, Any]:
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise SystemExit(f"Agent manifest must be a mapping: {manifest_path}")
+    return manifest
 
 
 def calculate_readiness_score(
@@ -553,6 +567,200 @@ def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
     return output
 
 
+def _ignore_live_run_copy(directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if name in LIVE_RUN_EXCLUDED_DIRS}
+
+
+def _snapshot_project_files(root: Path) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative_parts = path.relative_to(root).parts
+        if any(part in LIVE_RUN_EXCLUDED_DIRS for part in relative_parts):
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        snapshot[path.relative_to(root).as_posix()] = digest
+    return snapshot
+
+
+def _changed_files(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+
+
+def _read_text_for_diff(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except UnicodeDecodeError:
+        return ["<binary file>\n"]
+
+
+def _build_diff_patch(before_root: Path, after_root: Path, changed_files: list[str]) -> str:
+    hunks: list[str] = []
+    for relative_path in changed_files:
+        before_path = before_root / relative_path
+        after_path = after_root / relative_path
+        before_lines = _read_text_for_diff(before_path) if before_path.exists() else []
+        after_lines = _read_text_for_diff(after_path) if after_path.exists() else []
+        hunks.extend(
+            difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile=f"before/{relative_path}",
+                tofile=f"after/{relative_path}",
+            )
+        )
+    return "".join(hunks)
+
+
+def _artifact_root_for_live_run(args: argparse.Namespace, run_id: str) -> Path:
+    runs_root = Path(getattr(args, "runs_root", DEFAULT_RUNS_ROOT))
+    meta_run_id = getattr(args, "meta_run_id", None)
+    if meta_run_id:
+        return runs_root.parent / meta_run_id / "runs" / run_id
+    return runs_root / run_id
+
+
+def _normalize_command_executable(command: list[str]) -> list[str]:
+    if command and command[0] in {"python", "python3"}:
+        return [sys.executable, *command[1:]]
+    return command
+
+
+def _render_agent_command(
+    manifest: dict[str, Any],
+    *,
+    worktree: Path,
+    task: str,
+    provider: str,
+    run_id: str,
+    event_log: Path,
+) -> list[str]:
+    entrypoint = manifest.get("entrypoint", {})
+    command = entrypoint.get("command", [])
+    inputs = manifest.get("inputs", {})
+    if not isinstance(command, list) or not command:
+        raise SystemExit("Agent manifest entrypoint.command must be a non-empty list")
+
+    rendered = _normalize_command_executable([str(part) for part in command])
+    rendered.extend([str(inputs.get("project_arg", "--project")), str(worktree)])
+    rendered.extend([str(inputs.get("task_arg", "--task")), task])
+    rendered.extend([str(inputs.get("provider_arg", "--provider")), provider])
+    rendered.extend(["--run-id", run_id, "--event-log", str(event_log)])
+    run_tests_arg = inputs.get("run_tests_arg", "--run-tests")
+    if run_tests_arg:
+        rendered.append(str(run_tests_arg))
+    return rendered
+
+
+def _extract_agent_payload(stdout: str) -> dict[str, Any]:
+    stripped = stdout.strip()
+    if not stripped:
+        return {}
+    try:
+        payload = json.loads(stripped)
+        return payload if isinstance(payload, dict) else {}
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                payload = json.loads(stripped[start : end + 1])
+                return payload if isinstance(payload, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+
+def _live_status(exit_code: int, payload: dict[str, Any], changed_files: list[str]) -> str:
+    if exit_code != 0:
+        return "failed"
+    payload_status = str(payload.get("status", "")).strip()
+    if payload_status in {"validated", "not_applied", "applied", "failed", "needs_input"}:
+        return payload_status
+    return "applied" if changed_files else "not_applied"
+
+
+def execute_live_agent_run(
+    args: argparse.Namespace,
+    data: dict[str, Any],
+    pack: dict[str, Any],
+) -> tuple[dict[str, Any], Path]:
+    run_id = getattr(args, "run_id", None) or _default_run_id()
+    artifact_root = _artifact_root_for_live_run(args, run_id)
+    worktree = artifact_root / "worktree"
+    before_snapshot_root = artifact_root / "pre-run-snapshot"
+    source_project = Path(getattr(args, "target_project", REPO_ROOT / "sample-migration-agent")).resolve()
+    manifest_path = Path(getattr(args, "agent_manifest", source_project / "agentgauntlet.yaml")).resolve()
+    task = getattr(args, "task", "Migrate this project to Pydantic v2")
+    provider = getattr(args, "provider", "offline")
+    event_log = worktree / ".agentgauntlet" / "runs" / run_id / "agent-events.jsonl"
+
+    if artifact_root.exists():
+        shutil.rmtree(artifact_root)
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_project, worktree, ignore=_ignore_live_run_copy)
+    shutil.copytree(worktree, before_snapshot_root, ignore=_ignore_live_run_copy)
+
+    pre_snapshot = _snapshot_project_files(worktree)
+    (artifact_root / "pre-run-snapshot.json").write_text(json.dumps(pre_snapshot, indent=2), encoding="utf-8")
+    manifest = load_agent_manifest(manifest_path)
+    command = _render_agent_command(
+        manifest,
+        worktree=worktree,
+        task=task,
+        provider=provider,
+        run_id=run_id,
+        event_log=event_log,
+    )
+
+    started = time.perf_counter()
+    completed = subprocess.run(command, cwd=worktree, capture_output=True, text=True, check=False)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    stdout = completed.stdout
+    stderr = completed.stderr
+    (artifact_root / "stdout.txt").write_text(stdout, encoding="utf-8")
+    (artifact_root / "stderr.txt").write_text(stderr, encoding="utf-8")
+
+    post_snapshot = _snapshot_project_files(worktree)
+    changed_files = _changed_files(pre_snapshot, post_snapshot)
+    (artifact_root / "changed-files.json").write_text(json.dumps(changed_files, indent=2), encoding="utf-8")
+    (artifact_root / "diff.patch").write_text(
+        _build_diff_patch(before_snapshot_root, worktree, changed_files),
+        encoding="utf-8",
+    )
+    if event_log.exists():
+        shutil.copyfile(event_log, artifact_root / "agent-events.jsonl")
+    else:
+        (artifact_root / "agent-events.jsonl").write_text("", encoding="utf-8")
+
+    payload = _extract_agent_payload(stdout)
+    status = _live_status(completed.returncode, payload, changed_files)
+    record = build_run_record(argparse.Namespace(**{**vars(args), "run_id": run_id}), data, pack)
+    record["workspace"] = {
+        "sourceProject": source_project.as_posix(),
+        "worktree": worktree.as_posix(),
+        "preRunSnapshot": "pre-run-snapshot.json",
+    }
+    record["execution"] = {
+        "command": command,
+        "provider": provider,
+        "status": status,
+        "exitCode": completed.returncode,
+        "durationMs": duration_ms,
+    }
+    record["artifacts"] = {
+        "stdout": "stdout.txt",
+        "stderr": "stderr.txt",
+        "agentEvents": "agent-events.jsonl",
+        "diff": "diff.patch",
+        "changedFiles": "changed-files.json",
+    }
+    record["diff"] = {"changedFiles": changed_files}
+    record["agentPayload"] = payload
+    validate_json_schema(record, RUN_RECORD_SCHEMA)
+    (artifact_root / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return record, artifact_root
+
+
 def build_fixture_scenario_records(pack: dict[str, Any], count: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for scenario_path in pack.get("scenarios", [])[:count]:
@@ -944,6 +1152,13 @@ def cmd_scan(args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     data = load_demo_data()
     pack = load_pack(args.pack)
+    if getattr(args, "execute_agent", False):
+        record, artifact_root = execute_live_agent_run(args, data, pack)
+        print(f"Executed target agent: {record['targetAgent']['id']}")
+        print(f"Status: {record['execution']['status']}")
+        print(f"Post-run artifacts: {artifact_root}")
+        return
+
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     runs_root_arg = getattr(args, "runs_root", None)
     run_id_arg = getattr(args, "run_id", None)
@@ -1218,6 +1433,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--run-id", default=None)
     run.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
     run.add_argument("--agent-config", default=None)
+    run.add_argument("--execute-agent", action="store_true")
+    run.add_argument("--target-project", default=str(REPO_ROOT / "sample-migration-agent"))
+    run.add_argument("--agent-manifest", default=str(REPO_ROOT / "sample-migration-agent" / "agentgauntlet.yaml"))
+    run.add_argument("--provider", choices=("offline", "openai", "codex"), default="offline")
+    run.add_argument("--task", default="Migrate this project to Pydantic v2")
+    run.add_argument("--meta-run-id", default=None)
     run.set_defaults(func=cmd_run)
 
     trace = subparsers.add_parser("trace", help="Replay evidence for one scenario.")
