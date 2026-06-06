@@ -18,12 +18,23 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+try:
+    from openai_codex import Codex, Sandbox
+except ImportError:  # pragma: no cover - exercised when dependency is absent.
+    Codex = None  # type: ignore[assignment]
+    Sandbox = None  # type: ignore[assignment]
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_ROOT = PROJECT_ROOT / "src"
 SKILL_ROOT = PROJECT_ROOT / ".codex" / "skills"
 DEFAULT_TASK = "Migrate this project to Pydantic v2 without changing public behavior."
 DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_CODEX_MODEL = "gpt-5.4"
+AGENT_RUNTIME_FILES = {
+    "codex_sdk_wrapper.py",
+    "run_sample_migration.py",
+}
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -160,6 +171,10 @@ def build_context_map(project_path: Path) -> dict[str, Any]:
     docs = discover_files(project_path, ("docs/*.md", "*.md"))
     tests = discover_files(project_path, ("tests/test_*.py",))
     source = discover_files(project_path, ("src/**/*.py", "*.py"))
+    dependency_files = discover_files(
+        project_path,
+        ("pyproject.toml", "requirements*.txt", "setup.py", "setup.cfg"),
+    )
     skills = discover_files(project_path, (".codex/skills/*/SKILL.md",))
     harness_commands = read_harness_test_commands(project_path)
 
@@ -171,6 +186,7 @@ def build_context_map(project_path: Path) -> dict[str, Any]:
         "docs": docs,
         "tests": tests,
         "source": source,
+        "dependency_files": dependency_files,
         "test_commands": harness_commands or default_test_commands,
     }
 
@@ -193,8 +209,13 @@ def build_migration_map(context_map: dict[str, Any], task: str) -> dict[str, Any
     edit_targets = [
         path
         for path in context_map["source"]
-        if path.endswith(".py") and not path.startswith("tests/")
+        if (
+            path.endswith(".py")
+            and not path.startswith("tests/")
+            and path not in AGENT_RUNTIME_FILES
+        )
     ]
+    edit_targets.extend(context_map.get("dependency_files", []))
 
     return {
         "task": task,
@@ -248,6 +269,33 @@ def prompt_digest(prompt: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def file_digest(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def snapshot_edit_targets(
+    project_path: Path,
+    relative_paths: list[str],
+) -> dict[str, str | None]:
+    return {
+        relative_path: file_digest(project_path / relative_path)
+        for relative_path in relative_paths
+    }
+
+
+def changed_edit_targets(
+    before: dict[str, str | None],
+    after: dict[str, str | None],
+) -> list[str]:
+    return [
+        relative_path
+        for relative_path in before
+        if before[relative_path] != after.get(relative_path)
+    ]
+
+
 def build_llm_prompt(
     task: str,
     skills: list[dict[str, str]],
@@ -263,6 +311,8 @@ def build_llm_prompt(
         "response_schema": {
             "status": "completed|needs_input|failed",
             "summary": "short migration decision",
+            "applied": "true only when the provider has edited the target project",
+            "applied_files": ["paths edited inside the target project"],
             "patch_proposal": [{"file": "path", "reason": "why this file changes"}],
             "validation": ["commands or checks to run"],
         },
@@ -314,23 +364,76 @@ def call_openai_provider(prompt: dict[str, Any]) -> dict[str, Any]:
         raise ProviderConfigurationError(f"OpenAI provider request failed: {exc}") from exc
 
 
-def call_codex_provider(prompt: dict[str, Any]) -> dict[str, Any]:
-    command = os.environ.get("CODEX_SDK_COMMAND")
-    if not command:
-        raise ProviderConfigurationError("CODEX_SDK_COMMAND is required for --provider codex")
+def extract_json_object(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if not stripped:
+        return {
+            "status": "failed",
+            "summary": "Provider returned no text.",
+            "patch_proposal": [],
+            "validation": [],
+        }
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(stripped[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+    return {
+        "status": "completed",
+        "summary": stripped,
+        "patch_proposal": [],
+        "validation": [],
+    }
 
-    result = subprocess.run(
-        shlex.split(command),
-        input=json.dumps(prompt),
-        capture_output=True,
-        text=True,
-        check=False,
+
+def codex_sdk_input(prompt: dict[str, Any]) -> str:
+    return (
+        "You are the LLM step inside an uploaded code migration agent.\n"
+        "Apply the migration edits directly in the target project before returning.\n"
+        "Do not stop at a patch proposal when the requested migration is clear.\n"
+        "Use the target project path from context_map.project_path and preserve the forbidden actions.\n"
+        "Return JSON only with keys: status, summary, applied, applied_files, patch_proposal, validation.\n"
+        "Set applied=true only if you edited files in the target project. Set status=needs_input if you cannot edit safely.\n"
+        "Do not include markdown fences.\n\n"
+        f"Agent prompt JSON:\n{json.dumps(prompt, sort_keys=True)}"
     )
-    if result.returncode != 0:
+
+
+def resolve_codex_sandbox(name: str) -> Any:
+    if Sandbox is None:
+        raise ProviderConfigurationError("openai-codex Python package is required for --provider codex")
+
+    normalized = name.replace("-", "_")
+    allowed = {
+        "read_only": Sandbox.read_only,
+        "workspace_write": Sandbox.workspace_write,
+        "full_access": Sandbox.full_access,
+    }
+    if normalized not in allowed:
         raise ProviderConfigurationError(
-            f"Codex SDK command failed with exit code {result.returncode}: {result.stderr}"
+            "OPENAI_CODEX_SANDBOX must be one of: read_only, workspace_write, full_access"
         )
-    return json.loads(result.stdout)
+    return allowed[normalized]
+
+
+def call_codex_provider(prompt: dict[str, Any]) -> dict[str, Any]:
+    if Codex is None or Sandbox is None:
+        raise ProviderConfigurationError("openai-codex Python package is required for --provider codex")
+
+    model = os.environ.get("OPENAI_CODEX_MODEL", DEFAULT_CODEX_MODEL)
+    sandbox = resolve_codex_sandbox(os.environ.get("OPENAI_CODEX_SANDBOX", "workspace_write"))
+    with Codex() as codex:
+        thread = codex.thread_start(model=model, sandbox=sandbox)
+        result = thread.run(codex_sdk_input(prompt))
+    response = extract_json_object(result.final_response)
+    response["model"] = model
+    response["sandbox"] = str(sandbox)
+    return response
 
 
 def call_llm_provider(provider: str, prompt: dict[str, Any]) -> dict[str, Any]:
@@ -428,7 +531,16 @@ def run_agent(
                 "prompt_sha256": digest,
             },
         )
+        before_edit_targets = snapshot_edit_targets(
+            project_path,
+            migration_map["candidate_edit_targets"],
+        )
         llm_result = call_llm_provider(provider, prompt)
+        after_edit_targets = snapshot_edit_targets(
+            project_path,
+            migration_map["candidate_edit_targets"],
+        )
+        applied_edit_files = changed_edit_targets(before_edit_targets, after_edit_targets)
         append_event(
             event_log_path,
             {
@@ -448,6 +560,22 @@ def run_agent(
                 ],
             },
         )
+        if applied_edit_files:
+            append_event(
+                event_log_path,
+                {
+                    "type": "patch_applied",
+                    "files": applied_edit_files,
+                },
+            )
+        elif llm_result.get("status") == "completed":
+            append_event(
+                event_log_path,
+                {
+                    "type": "patch_not_applied",
+                    "reason": "provider_did_not_apply_edits",
+                },
+            )
 
         for command in context_map["test_commands"] if run_tests else []:
             append_event(event_log_path, {"type": "tests_started", "command": command})
@@ -473,9 +601,18 @@ def run_agent(
         raise
 
     status = "planned"
-    if run_tests:
+    finish_event: dict[str, Any] = {"type": "agent_finished"}
+    if llm_result.get("status") in {"failed", "needs_input"}:
+        status = str(llm_result.get("status"))
+    elif not applied_edit_files:
+        status = "not_applied"
+        finish_event["reason"] = "provider_did_not_apply_edits"
+    elif run_tests:
         status = "validated" if all(result["exit_code"] == 0 for result in test_results) else "failed"
-    append_event(event_log_path, {"type": "agent_finished", "status": status})
+    elif applied_edit_files:
+        status = "applied"
+    finish_event["status"] = status
+    append_event(event_log_path, finish_event)
 
     return {
         "agent": "migration-pilot-sample",
@@ -488,6 +625,7 @@ def run_agent(
         "context_map": context_map,
         "migration_map": migration_map,
         "llm_result": llm_result,
+        "applied_edit_files": applied_edit_files,
         "validation_plan": context_map["test_commands"],
         "test_results": test_results,
     }
@@ -558,7 +696,7 @@ def check_validation_semantics() -> list[str]:
         full_name="Ada Lovelace",
         created_at=datetime(2026, 1, 1, 9, 30),
         address=address,
-    ).dict(by_alias=True, exclude_none=True)
+    ).model_dump(by_alias=True, exclude_none=True)
     require(
         payload["address"] == {
             "street_line_1": "1 Analytical Engine Way",
@@ -625,7 +763,7 @@ def parse_args() -> argparse.Namespace:
         "--provider",
         choices=("offline", "openai", "codex"),
         default="offline",
-        help="LLM provider to use. offline is deterministic; codex uses CODEX_SDK_COMMAND.",
+        help="LLM provider to use. offline is deterministic; codex uses the openai-codex SDK.",
     )
     parser.add_argument(
         "--run-id",

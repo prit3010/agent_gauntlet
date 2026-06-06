@@ -24,8 +24,8 @@ The uploaded agent should:
 
 - load its migration skills or instruction files;
 - log which skills it discovered and used;
-- call an LLM or Codex SDK provider for migration planning or patch generation;
-- propose or apply code edits inside the target project;
+- call an LLM or Codex SDK provider for migration planning and code edits;
+- apply code edits inside the target project when the task is actionable;
 - run the requested validation commands when asked;
 - write an agent-owned JSONL event log.
 
@@ -43,6 +43,8 @@ Expected event types include:
 - `llm_request`
 - `llm_response`
 - `patch_proposed`
+- `patch_applied`
+- `patch_not_applied`
 - `tests_started`
 - `tests_finished`
 - `agent_finished`
@@ -62,6 +64,8 @@ Agent Gauntlet should treat the uploaded agent's log as claimed telemetry, not p
 
 This distinction matters because uploaded agents are not trusted evaluators of their own success.
 
+For migration tasks, a passing test run is not enough to prove the agent did work. The sample runner snapshots candidate edit files before and after the provider call. A run may only become `validated` when the runner observes changed candidate edit files and the configured tests pass. If the provider returns a patch proposal but the runner observes no edit, the run status is `not_applied`.
+
 ## Provider Modes
 
 The sample agent supports three provider modes:
@@ -70,7 +74,7 @@ The sample agent supports three provider modes:
 - `codex`: calls a configured Codex SDK command through `CODEX_SDK_COMMAND`.
 - `openai`: calls the OpenAI Responses API through `OPENAI_API_KEY`.
 
-The demo should use `offline` for deterministic verification and `codex` when showing the real uploaded-agent shape.
+The demo should use `offline` for deterministic proposal-path verification and `codex` when showing the real uploaded-agent edit path. Offline mode is intentionally proposal-only, so it should report `not_applied` rather than `validated`.
 
 For local Codex CLI demos, the sample uses a wrapper command:
 

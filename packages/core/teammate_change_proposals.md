@@ -16,6 +16,12 @@ Required fields:
 - call log path
 - file-output log path
 
+Current fit with the Migration Pilot sample:
+
+- Core currently validates JSON config through `contracts/agent_config.schema.json`.
+- `sample-migration-agent/agentgauntlet.yaml` is a target-agent runtime manifest that explains how to invoke the sample agent; it is not yet accepted by `agx run --agent-config`.
+- The sample Codex provider now uses the OpenAI Python SDK with `OPENAI_API_KEY`, so the configured entrypoint should be the rendered `run_sample_migration.py --provider codex` command, not a `CODEX_SDK_COMMAND` wrapper.
+
 ## 2. Required File-Output Log
 
 Every target agent must write file-output events to a configured JSONL path:
@@ -34,13 +40,20 @@ Every target agent must write file-output events to a configured JSONL path:
 
 This is the minimum instrumentation requirement for Agent Gauntlet to reconstruct what the target agent wrote, edited, or emitted during a run.
 
+Current fit with the Migration Pilot sample:
+
+- The sample agent currently writes an agent-owned event log at `.agentgauntlet/runs/{run_id}/agent-events.jsonl`.
+- That event log includes high-level events such as `llm_request`, `llm_response`, `patch_proposed`, and `tests_finished`, but it is not the same contract as `.agx/logs/file-output.jsonl`.
+- Teammate 2 should either emit the required file-output JSONL stream directly or define a deterministic adapter from the existing event log into the core file-output log contract.
+
 ## 3. Teammate 2 Pack Requests
 
 Please provide or confirm:
 
 - expected target-agent config defaults for Migration Pilot
-- exact agent entrypoint command
-- exact file-output log schema, if Migration Pilot already emits one
+- exact agent entrypoint command after rendering `agentgauntlet.yaml`
+- exact file-output log schema, or confirmation that Migration Pilot only emits the current agent event log for now
+- whether `logs.calls.path` should point at `.agentgauntlet/runs/{run_id}/agent-events.jsonl` or a separate call log
 - scenario fields that should be copied into run history
 - validator fields that should appear in promotion evidence
 - sample generated test cases that will define the persisted output shape for `agx generate`
@@ -138,4 +151,6 @@ run` is Agent Gauntlet running the full optimization loop around that agent.
 
 ## 5. Open Product Question
 
-The current core stores config as JSON because the repo has no YAML dependency. If the product wants `agent-gauntlet.yaml`, we should add a YAML parser/writer intentionally rather than hand-rolling it.
+The current core stores agent config as JSON because the repo has no YAML dependency. The repo already has `sample-migration-agent/agentgauntlet.yaml` as a target runtime manifest and a simple hand-rolled parser for `packs/code_migration/pack.yaml`.
+
+If the product wants `agentgauntlet.yaml` or `agent-gauntlet.yaml` to become the primary core config format, we should add a YAML parser/writer intentionally and define how it maps onto `contracts/agent_config.schema.json` rather than extending the simple pack parser.

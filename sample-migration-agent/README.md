@@ -27,7 +27,7 @@ Or run it directly from this directory:
 ./run_sample_migration.py
 ```
 
-The script is shaped like an uploaded Codex migration agent. `agentgauntlet.yaml` declares how Agent Gauntlet should invoke it, while the script loads local migration skills, builds a context map, creates a migration map, calls an LLM provider, writes an agent-owned event log, and checks the sample invariants.
+The script is shaped like an uploaded Codex migration agent. `agentgauntlet.yaml` declares how Agent Gauntlet should invoke it, while the script loads local migration skills, builds a context map, creates a migration map, calls an LLM provider, observes whether files changed, writes an agent-owned event log, and checks the sample invariants.
 
 Agent Gauntlet renders the generic command from `agentgauntlet.yaml` by filling in the target project, task, provider, and test flag:
 
@@ -41,20 +41,29 @@ For local verification without network or SDK credentials, use the deterministic
 python3 sample-migration-agent/run_sample_migration.py --provider offline --run-tests
 ```
 
+Offline mode is proposal-only. It should return `status: not_applied`, even if the tests pass, because the runner did not observe file edits.
+
 Provider modes:
 
 - `offline`: deterministic local provider used by tests.
-- `codex`: calls the configured Codex SDK command from `CODEX_SDK_COMMAND`.
+- `codex`: calls the `openai-codex` SDK and starts a local Codex thread with `Sandbox.workspace_write` by default.
 - `openai`: calls the OpenAI Responses API with `OPENAI_API_KEY`.
 
-For a local Codex CLI demo, configure the wrapper:
+Install the Codex SDK dependency:
 
 ```bash
-export CODEX_SDK_COMMAND="python3 sample-migration-agent/codex_sdk_wrapper.py --dangerously-skip-permissions"
-python3 sample-migration-agent/run_sample_migration.py --provider codex --run-tests
+pip install openai-codex
 ```
 
-`--dangerously-skip-permissions` is local demo mode only. The wrapper maps it to the Codex CLI dangerous sandbox-bypass flag and should only be used against disposable target worktrees.
+The Codex provider is instructed to apply migration edits directly in the target project. A run is only `validated` after the runner observes changed candidate edit files and the configured tests pass. If the provider only returns a proposal, the run is `not_applied`.
+
+The default Codex SDK model is `gpt-5.4`, matching the SDK docs example. You can override it:
+
+```bash
+export OPENAI_CODEX_MODEL="gpt-5.4"
+```
+
+The optional `codex_sdk_wrapper.py` is only a CLI adapter for experiments with local `codex exec`. It is not the default provider path. If you use its `--dangerously-skip-permissions` flag, only run it against disposable target worktrees.
 
 If `codex` fails with a missing vendored binary, reinstall the local CLI:
 
@@ -62,4 +71,4 @@ If `codex` fails with a missing vendored binary, reinstall the local CLI:
 npm install -g @openai/codex@latest
 ```
 
-The agent writes JSONL telemetry to `.agentgauntlet/runs/<run_id>/agent-events.jsonl` by default. These are agent-claimed events such as `skill_used`, `llm_request`, `llm_response`, `patch_proposed`, and `tests_finished`; Agent Gauntlet should still independently capture stdout, stderr, diffs, exit code, and test output.
+The agent writes JSONL telemetry to `.agentgauntlet/runs/<run_id>/agent-events.jsonl` by default. These include events such as `skill_used`, `llm_request`, `llm_response`, `patch_proposed`, `patch_applied`, `patch_not_applied`, and `tests_finished`; Agent Gauntlet should still independently capture stdout, stderr, diffs, exit code, and test output.
