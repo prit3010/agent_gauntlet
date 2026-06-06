@@ -27,6 +27,8 @@ DEFAULT_GENERATIONS_ROOT = REPO_ROOT / "data" / "generations"
 DEFAULT_TRAINING_ROOT = REPO_ROOT / "data" / "training"
 DEFAULT_VALIDATIONS_ROOT = REPO_ROOT / "data" / "validations"
 DEFAULT_PROMOTIONS_ROOT = REPO_ROOT / "data" / "promotions"
+DEFAULT_META_RUNS_ROOT = REPO_ROOT / "data"
+DEFAULT_AGENTS_ROOT = REPO_ROOT / "agents"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -284,6 +286,82 @@ def _default_promotion_id() -> str:
     return datetime.now(UTC).strftime("prom-%Y%m%d%H%M%SZ")
 
 
+def _agent_store_path(agent_name: str, *parts: str) -> str:
+    return "/".join(["agents", agent_name, *parts])
+
+
+def _write_agent_version_marker(path: Path, payload: dict[str, Any]) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "agent-version.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _ensure_base_agent_versions(agents_root: Path, agent_name: str) -> None:
+    agent_root = agents_root / agent_name
+    base_payload = {
+        "agent": agent_name,
+        "version": "v1",
+        "source": "fixture_original",
+        "status": "accepted",
+    }
+    _write_agent_version_marker(agent_root / "original", {**base_payload, "version": "original"})
+    _write_agent_version_marker(agent_root / "versions" / "v1", base_payload)
+
+
+def materialize_training_agent_versions(record: dict[str, Any], agents_root: Path, agent_name: str) -> None:
+    _ensure_base_agent_versions(agents_root, agent_name)
+    agent_root = agents_root / agent_name
+    for candidate in record["candidates"]:
+        _write_agent_version_marker(
+            agent_root / "candidates" / candidate["candidateHarnessVersion"],
+            {
+                "agent": agent_name,
+                "version": candidate["candidateHarnessVersion"],
+                "base_version": candidate["baseHarnessVersion"],
+                "candidate_id": candidate["id"],
+                "status": candidate["status"],
+                "patch_type": candidate["patchType"],
+                "source": "fixture_training_candidate",
+            },
+        )
+
+
+def materialize_promoted_agent_version(record: dict[str, Any], agents_root: Path, agent_name: str) -> None:
+    _ensure_base_agent_versions(agents_root, agent_name)
+    agent_root = agents_root / agent_name
+    _write_agent_version_marker(
+        agent_root / "candidates" / record["candidateHarnessVersion"],
+        {
+            "agent": agent_name,
+            "version": record["candidateHarnessVersion"],
+            "base_version": "v1",
+            "candidate_id": record["promotedCandidate"],
+            "status": "promoted_candidate",
+            "patch_type": record["patchType"],
+            "source": "fixture_training_candidate",
+        },
+    )
+    _write_agent_version_marker(
+        agent_root / "versions" / record["promotedHarnessVersion"],
+        {
+            "agent": agent_name,
+            "version": record["promotedHarnessVersion"],
+            "promoted_from": record["candidateHarnessVersion"],
+            "candidate_id": record["promotedCandidate"],
+            "status": "accepted",
+            "patch_type": record["patchType"],
+            "source": "fixture_promotion",
+        },
+    )
+    manifest = {
+        "agent": agent_name,
+        "original": _agent_store_path(agent_name, "original"),
+        "current_version": record["promotedHarnessVersion"],
+        "current_path": _agent_store_path(agent_name, "versions", record["promotedHarnessVersion"]),
+        "versions": ["v1", record["promotedHarnessVersion"]],
+    }
+    (agent_root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
 def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
     baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
     agent_config = load_agent_config(getattr(args, "agent_config", None))
@@ -363,6 +441,7 @@ def write_generation_record(record: dict[str, Any], output_root: Path) -> Path:
 
 def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
     training_id = getattr(args, "training_id", None) or _default_training_id()
+    agent_name = getattr(args, "agent_name", "codebase_migrator")
     candidates = data["candidatePatches"][: args.candidates]
     return {
         "trainingId": training_id,
@@ -375,6 +454,11 @@ def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dic
         "request": {
             "candidates": args.candidates,
         },
+        "agent": {
+            "name": agent_name,
+            "originalPath": _agent_store_path(agent_name, "original"),
+            "baseVersionPath": _agent_store_path(agent_name, "versions", "v1"),
+        },
         "baseHarnessVersion": "v1",
         "candidates": [
             {
@@ -384,6 +468,7 @@ def build_training_record(args: argparse.Namespace, data: dict[str, Any]) -> dic
                 "validationScore": patch["validationScore"],
                 "baseHarnessVersion": patch["baseHarnessVersion"],
                 "candidateHarnessVersion": patch["candidateHarnessVersion"],
+                "agentVersionPath": _agent_store_path(agent_name, "candidates", patch["candidateHarnessVersion"]),
                 "patchType": patch["patchType"],
                 "reason": patch["reason"],
             }
@@ -404,6 +489,7 @@ def write_training_record(record: dict[str, Any], output_root: Path) -> Path:
 
 def build_validation_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
     validation_id = getattr(args, "validation_id", None) or _default_validation_id()
+    agent_name = getattr(args, "agent_name", "codebase_migrator")
     gate_results = evaluate_candidate_gates(data)
     promoted = next(patch for patch in data["candidatePatches"] if gate_results[patch["id"]]["passes"])
     return {
@@ -412,6 +498,10 @@ def build_validation_record(args: argparse.Namespace, data: dict[str, Any]) -> d
         "scope": "heldout" if args.heldout else "training",
         "bestCandidate": promoted["id"],
         "validationScore": promoted["validationScore"],
+        "candidateAgentVersions": {
+            patch["id"]: _agent_store_path(agent_name, "candidates", patch["candidateHarnessVersion"])
+            for patch in data["candidatePatches"]
+        },
         "gateResults": gate_results,
         "status": "fixture_backed_interface",
     }
@@ -428,6 +518,7 @@ def write_validation_record(record: dict[str, Any], output_root: Path) -> Path:
 
 def build_promotion_record(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
     promotion_id = getattr(args, "promotion_id", None) or _default_promotion_id()
+    agent_name = getattr(args, "agent_name", "codebase_migrator")
     report = data["promotionReport"]
     gate_results = evaluate_candidate_gates(data)
     promoted_id = report["promotedCandidate"]
@@ -438,6 +529,8 @@ def build_promotion_record(args: argparse.Namespace, data: dict[str, Any]) -> di
         "promotedCandidate": promoted_id,
         "promotedHarnessVersion": report["promotedHarnessVersion"],
         "candidateHarnessVersion": promoted["candidateHarnessVersion"],
+        "promotedAgentVersionPath": _agent_store_path(agent_name, "versions", report["promotedHarnessVersion"]),
+        "currentVersionManifestPath": _agent_store_path(agent_name, "manifest.json"),
         "patchType": promoted["patchType"],
         "validationScore": promoted["validationScore"],
         "gatePassed": gate_results[promoted_id]["passes"],
@@ -517,18 +610,20 @@ def cmd_demo_data(args: argparse.Namespace) -> None:
     print("Source: contracts/sample_dashboard_data.json")
 
 
-def cmd_demo_meta_run(args: argparse.Namespace) -> None:
+def cmd_meta_run(args: argparse.Namespace) -> None:
     data = load_demo_data()
     pack = load_pack(args.pack)
     output_root = Path(args.output_root)
-    demo_id = args.demo_id
-    meta_run_root = output_root / demo_id
+    meta_run_id = args.meta_run_id
+    meta_run_root = output_root / meta_run_id
+    agents_root = Path(args.agents_root)
+    agent_name = args.agent_name
 
     generation = build_generation_record(
         argparse.Namespace(
             pack=args.pack,
             scenarios=args.scenarios,
-            generation_id=f"{demo_id}-generate",
+            generation_id=f"{meta_run_id}-generate",
             llm_provider=args.llm_provider,
             llm_model=args.llm_model,
         ),
@@ -539,7 +634,7 @@ def cmd_demo_meta_run(args: argparse.Namespace) -> None:
             pack=args.pack,
             scenarios=args.scenarios,
             round="baseline",
-            run_id=f"{demo_id}-run",
+            run_id=f"{meta_run_id}-run",
             agent_config=None,
         ),
         data,
@@ -548,20 +643,24 @@ def cmd_demo_meta_run(args: argparse.Namespace) -> None:
     training = build_training_record(
         argparse.Namespace(
             candidates=args.candidates,
-            training_id=f"{demo_id}-train",
+            training_id=f"{meta_run_id}-train",
+            agent_name=agent_name,
             llm_provider=args.llm_provider,
             llm_model=args.llm_model,
         ),
         data,
     )
     validation = build_validation_record(
-        argparse.Namespace(heldout=True, validation_id=f"{demo_id}-validate"),
+        argparse.Namespace(heldout=True, validation_id=f"{meta_run_id}-validate", agent_name=agent_name),
         data,
     )
     promotion = build_promotion_record(
-        argparse.Namespace(if_pass=True, promotion_id=f"{demo_id}-promote"),
+        argparse.Namespace(if_pass=True, promotion_id=f"{meta_run_id}-promote", agent_name=agent_name),
         data,
     )
+
+    materialize_training_agent_versions(training, agents_root, agent_name)
+    materialize_promoted_agent_version(promotion, agents_root, agent_name)
 
     write_meta_run_artifact(generation, GENERATION_RECORD_SCHEMA, meta_run_root, "generation.json")
     write_meta_run_artifact(run_record, RUN_RECORD_SCHEMA, meta_run_root, "agent-run.json")
@@ -570,7 +669,7 @@ def cmd_demo_meta_run(args: argparse.Namespace) -> None:
     write_meta_run_artifact(promotion, PROMOTION_RECORD_SCHEMA, meta_run_root, "promotion.json")
 
     print("Fixture-backed meta run: generate -> run -> train -> validate -> promote")
-    print(f"Demo artifacts root: {meta_run_root}")
+    print(f"Meta-run artifacts root: {meta_run_root}")
     print(f"Generated scenarios: {args.scenarios}")
     print(f"Candidate patches: {args.candidates}")
     print(f"Promoted harness: {promotion['promotedHarnessVersion']}")
@@ -651,6 +750,11 @@ def cmd_train(args: argparse.Namespace) -> None:
     record = build_training_record(args, data)
     output_root = Path(getattr(args, "output_root", DEFAULT_TRAINING_ROOT))
     output = write_training_record(record, output_root)
+    materialize_training_agent_versions(
+        record,
+        Path(getattr(args, "agents_root", DEFAULT_AGENTS_ROOT)),
+        getattr(args, "agent_name", "codebase_migrator"),
+    )
     print(f"LLM patch generator: {_llm_label(args)}")
     print(f"Candidate harness patches from deterministic training runs ({args.candidates} requested)")
     for patch in data["candidatePatches"][: args.candidates]:
@@ -690,6 +794,11 @@ def cmd_promote(args: argparse.Namespace) -> None:
     record = build_promotion_record(args, data)
     output_root = Path(getattr(args, "output_root", DEFAULT_PROMOTIONS_ROOT))
     output = write_promotion_record(record, output_root)
+    materialize_promoted_agent_version(
+        record,
+        Path(getattr(args, "agents_root", DEFAULT_AGENTS_ROOT)),
+        getattr(args, "agent_name", "codebase_migrator"),
+    )
     print(f"Promoted candidate: {promoted_id}")
     print(f"New accepted harness: {report['promotedHarnessVersion']}")
     print(f"Patch type: {promoted['patchType']}")
@@ -796,6 +905,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--candidates", type=int, default=3)
     train.add_argument("--training-id", default=None)
     train.add_argument("--output-root", default=str(DEFAULT_TRAINING_ROOT))
+    train.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
+    train.add_argument("--agent-name", default="codebase_migrator")
     train.add_argument("--llm-provider", default="fixture")
     train.add_argument("--llm-model", default="demo-fixture")
     train.set_defaults(func=cmd_train)
@@ -804,12 +915,16 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--heldout", action="store_true")
     validate.add_argument("--validation-id", default=None)
     validate.add_argument("--output-root", default=str(DEFAULT_VALIDATIONS_ROOT))
+    validate.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
+    validate.add_argument("--agent-name", default="codebase_migrator")
     validate.set_defaults(func=cmd_validate)
 
     promote = subparsers.add_parser("promote", help="Promote the best candidate if gate checks pass.")
     promote.add_argument("--if-pass", action="store_true")
     promote.add_argument("--promotion-id", default=None)
     promote.add_argument("--output-root", default=str(DEFAULT_PROMOTIONS_ROOT))
+    promote.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
+    promote.add_argument("--agent-name", default="codebase_migrator")
     promote.set_defaults(func=cmd_promote)
 
     export = subparsers.add_parser("export", help="Export promoted harness artifacts.")
@@ -820,18 +935,20 @@ def build_parser() -> argparse.ArgumentParser:
     demo_data.add_argument("--out", default=None)
     demo_data.set_defaults(func=cmd_demo_data)
 
-    demo_meta_run = subparsers.add_parser(
-        "demo-meta-run",
+    meta_run = subparsers.add_parser(
+        "meta-run",
         help="Write a complete fixture-backed meta-agent loop.",
     )
-    demo_meta_run.add_argument("--demo-id", default="demo-001")
-    demo_meta_run.add_argument("--output-root", default=str(REPO_ROOT / "data" / "demo-runs"))
-    demo_meta_run.add_argument("--pack", default="code_migration")
-    demo_meta_run.add_argument("--scenarios", type=int, default=3)
-    demo_meta_run.add_argument("--candidates", type=int, default=3)
-    demo_meta_run.add_argument("--llm-provider", default="fixture")
-    demo_meta_run.add_argument("--llm-model", default="demo-fixture")
-    demo_meta_run.set_defaults(func=cmd_demo_meta_run)
+    meta_run.add_argument("--meta-run-id", default="codebase_migration_agent_1")
+    meta_run.add_argument("--output-root", default=str(DEFAULT_META_RUNS_ROOT))
+    meta_run.add_argument("--agents-root", default=str(DEFAULT_AGENTS_ROOT))
+    meta_run.add_argument("--agent-name", default="codebase_migrator")
+    meta_run.add_argument("--pack", default="code_migration")
+    meta_run.add_argument("--scenarios", type=int, default=3)
+    meta_run.add_argument("--candidates", type=int, default=3)
+    meta_run.add_argument("--llm-provider", default="fixture")
+    meta_run.add_argument("--llm-model", default="demo-fixture")
+    meta_run.set_defaults(func=cmd_meta_run)
 
     history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")
     history.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))

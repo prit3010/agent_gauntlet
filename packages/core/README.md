@@ -14,12 +14,12 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli scan
 uv run --python 3.12 --group dev python -m packages.core.agx.cli generate --pack code_migration --scenarios 3 --generation-id gen-demo-001 --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli run --pack code_migration --scenarios 12 --round baseline
 uv run --python 3.12 --group dev python -m packages.core.agx.cli trace pydantic_alias_regression_001
-uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --llm-provider openai --llm-model gpt-5
+uv run --python 3.12 --group dev python -m packages.core.agx.cli train --candidates 3 --training-id train-demo-001 --agent-name codebase_migrator --llm-provider openai --llm-model gpt-5
 uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --heldout --validation-id val-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass --promotion-id prom-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
 uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-data --out data/dashboard/demo-data.json
-uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-meta-run --demo-id demo-001
+uv run --python 3.12 --group dev python -m packages.core.agx.cli meta-run --meta-run-id codebase_migration_agent_1
 ```
 
 Run tests with:
@@ -38,7 +38,7 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 `promote` writes `data/promotions/<promotion_id>/promotion.json`.
 
-`demo-meta-run` writes a complete fixture-backed meta-agent loop under `data/demo-runs/<meta_run_id>`.
+`meta-run` writes a complete fixture-backed meta-agent loop under `data/<meta_run_id>`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
@@ -56,10 +56,10 @@ around a target agent.
 
 `generate` now exposes the LLM scenario-generation boundary. It accepts
 `--llm-provider` and `--llm-model`, but the demo core does not make a live LLM
-call yet. For the current demo, generated scenarios are represented by fixed
-teammate 2 fixtures under `packs/code_migration/scenarios/**`. Once teammate 2's
-sample generated test cases define the scenario shape, this command should write
-generated scenario records through that contract.
+call yet. The saved future prompt is
+`packages/core/prompts/generate_agent_eval_scenarios.md`. For the current demo,
+generated scenarios are represented by fixed teammate 2 fixtures under
+`packs/code_migration/scenarios/**`.
 
 Generation records validate against `contracts/generation_record.schema.json`
 and are stored as:
@@ -68,14 +68,14 @@ and are stored as:
 data/generations/<generation_id>/generation.json
 ```
 
-`run` evaluates a harness version. `train` creates candidate variants from the
-current accepted harness. It also accepts `--llm-provider` and `--llm-model` as
-the future patch-generator interface:
+`run` evaluates one target-agent execution. `train` creates candidate target
+agent versions from the current accepted agent version. It also accepts
+`--llm-provider` and `--llm-model` as the future patch-generator interface:
 
 ```text
-v1 + Candidate A -> v1a
-v1 + Candidate B -> v1b
-v1 + Candidate C -> v1c
+agents/codebase_migrator/versions/v1 + Candidate A -> agents/codebase_migrator/candidates/v1a
+agents/codebase_migrator/versions/v1 + Candidate B -> agents/codebase_migrator/candidates/v1b
+agents/codebase_migrator/versions/v1 + Candidate C -> agents/codebase_migrator/candidates/v1c
 ```
 
 Training records validate against `contracts/training_record.schema.json` and
@@ -83,6 +83,17 @@ are stored as:
 
 ```text
 data/training/<training_id>/training.json
+```
+
+The fixture-backed candidate agent folders are materialized under:
+
+```text
+agents/<agent_name>/
+  original/
+  versions/v1/
+  candidates/v1a/
+  candidates/v1b/
+  candidates/v1c/
 ```
 
 `validate` evaluates the deterministic promotion gate over candidates and writes
@@ -93,8 +104,9 @@ a validation record. Validation records validate against
 data/validations/<validation_id>/validation.json
 ```
 
-`promote` selects the safest candidate and marks it as the next accepted
-harness version. In the demo, Candidate C becomes `v2`.
+`promote` selects the safest candidate and marks it as the next accepted agent
+version. In the demo, Candidate C becomes `v2` and updates
+`agents/<agent_name>/manifest.json`.
 
 Promotion records validate against `contracts/promotion_record.schema.json` and
 are stored as:

@@ -9,6 +9,7 @@
     "createdAt",
     "llm",
     "request",
+    "agent",
     "baseHarnessVersion",
     "candidates",
     "status"
@@ -51,6 +52,25 @@
         }
       }
     },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "originalPath", "baseVersionPath"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "originalPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseVersionPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "baseHarnessVersion": {
       "type": "string",
       "minLength": 1
@@ -68,6 +88,7 @@
           "validationScore",
           "baseHarnessVersion",
           "candidateHarnessVersion",
+          "agentVersionPath",
           "patchType",
           "reason"
         ],
@@ -94,6 +115,10 @@
             "minLength": 1
           },
           "candidateHarnessVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentVersionPath": {
             "type": "string",
             "minLength": 1
           },
