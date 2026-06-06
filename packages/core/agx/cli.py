@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_DATA = REPO_ROOT / "contracts" / "sample_dashboard_data.json"
 SCHEMA_DATA = REPO_ROOT / "contracts" / "dashboard_data.schema.json"
 AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
+RUN_RECORD_SCHEMA = REPO_ROOT / "contracts" / "run_record.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
@@ -81,11 +82,11 @@ def load_pack(pack_id: str) -> dict[str, Any]:
     pack = _parse_simple_yaml(pack_path.read_text(encoding="utf-8"))
     pack["pack_path"] = str(pack_path.parent.relative_to(REPO_ROOT))
     pack["trace_fixtures"] = sorted(
-        str(path.relative_to(pack_path.parent)).replace("\\", "/")
+        path.relative_to(pack_path.parent).as_posix()
         for path in (pack_path.parent / "traces").glob("*.json")
     )
     pack["patch_fixtures"] = sorted(
-        str(path.relative_to(pack_path.parent)).replace("\\", "/")
+        path.relative_to(pack_path.parent).as_posix()
         for path in (pack_path.parent / "patches").glob("*.diff")
     )
     return pack
@@ -187,11 +188,12 @@ def build_context_map(project_path: Path, pack_id: str = "code_migration") -> di
 def build_default_agent_config(project_path: Path, pack_id: str = "code_migration") -> dict[str, Any]:
     pack = load_pack(pack_id)
     project_name = project_path.name or "agent"
+    repo_path = portable_repo_path(project_path)
     return {
         "agent": {
             "id": project_name,
             "name": project_name.replace("-", " ").title(),
-            "repo_path": str(project_path),
+            "repo_path": repo_path,
             "entrypoint": {
                 "type": "command",
                 "command": "configure-me",
@@ -227,6 +229,15 @@ def build_default_agent_config(project_path: Path, pack_id: str = "code_migratio
             "log_contract": "agent must write file-output events to logs.file_output.path",
         },
     }
+
+
+def portable_repo_path(project_path: Path) -> str:
+    resolved_path = project_path.resolve()
+    try:
+        relative_path = resolved_path.relative_to(REPO_ROOT)
+    except ValueError:
+        return resolved_path.as_posix()
+    return f"./{relative_path.as_posix()}"
 
 
 def load_agent_config(config_path: str | None) -> dict[str, Any]:
@@ -297,7 +308,7 @@ def _import_file_output_log(record: dict[str, Any], run_dir: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, output)
     file_output["imported"] = True
-    file_output["imported_path"] = str(relative_output).replace("\\", "/")
+    file_output["imported_path"] = relative_output.as_posix()
 
 
 def iter_run_records(runs_root: Path) -> list[dict[str, Any]]:
@@ -313,7 +324,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     project_path = Path(args.project_path).resolve()
     context_map = build_context_map(project_path)
     agent_config = build_default_agent_config(project_path)
-    print(f"Agent Gauntlet initialized for {project_path}")
+    print(f"Agent Gauntlet initialized for {portable_repo_path(project_path)}")
     print(f"Pack: {context_map['domain_pack']}")
     print(f"Required file-output log: {agent_config['logs']['file_output']['path']}")
     print("Expected validation commands:")

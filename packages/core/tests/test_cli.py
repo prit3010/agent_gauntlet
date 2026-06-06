@@ -373,6 +373,27 @@ class ContractShapeTest(unittest.TestCase):
         Draft202012Validator(schema).validate(config)
         self.assertTrue(config["logs"]["file_output"]["required"])
         self.assertTrue(config["logs"]["file_output"]["path"])
+        self.assertEqual(config["agent"]["repo_path"], "./sample-migration-agent")
+        self.assertNotIn("\\", config["agent"]["repo_path"])
+
+    def test_run_record_validates_against_schema(self) -> None:
+        schema = json.loads(cli.RUN_RECORD_SCHEMA.read_text(encoding="utf-8"))
+        data = cli.load_demo_data()
+        pack = cli.load_pack("code_migration")
+        record = cli.build_run_record(
+            argparse.Namespace(
+                pack="code_migration",
+                scenarios=12,
+                round="baseline",
+                run_id="run-schema-001",
+                agent_config=None,
+            ),
+            data,
+            pack,
+        )
+
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(record)
 
 
 if __name__ == "__main__":

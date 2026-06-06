@@ -83,6 +83,14 @@ it into the run folder:
 data/runs/<run_id>/logs/file-output.jsonl
 ```
 
+Run records are stored as:
+
+```text
+data/runs/<run_id>/run.json
+```
+
+and validate against `contracts/run_record.schema.json`.
+
 ## Data Contract
 
 `contracts/dashboard_data.schema.json` is the source of truth for teammate 3 dashboard data. The canonical fixture is `contracts/sample_dashboard_data.json`.

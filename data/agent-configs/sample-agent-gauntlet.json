@@ -2,7 +2,7 @@
   "agent": {
     "id": "sample-migration-agent",
     "name": "Sample Migration Agent",
-    "repo_path": "C:\\Users\\hcich\\Documents\\GitHub\\agent_gauntlet\\sample-migration-agent",
+    "repo_path": "./sample-migration-agent",
     "entrypoint": {
       "type": "command",
       "command": "configure-me"
