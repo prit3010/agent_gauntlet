@@ -10,6 +10,8 @@
     "promotedCandidate",
     "promotedHarnessVersion",
     "candidateHarnessVersion",
+    "promotedAgentVersionPath",
+    "currentVersionManifestPath",
     "patchType",
     "validationScore",
     "gatePassed",
@@ -35,6 +37,14 @@
       "minLength": 1
     },
     "candidateHarnessVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "promotedAgentVersionPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "currentVersionManifestPath": {
       "type": "string",
       "minLength": 1
     },

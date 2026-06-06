@@ -36,7 +36,7 @@ class ParserTest(unittest.TestCase):
             "promote",
             "export",
             "demo-data",
-            "demo-meta-run",
+            "meta-run",
             "history",
             "show",
         ]:
@@ -66,7 +66,7 @@ class ParserTest(unittest.TestCase):
             ["promote", "--if-pass", "--promotion-id", "prom-demo-001"],
             ["export", "--target", "codex"],
             ["demo-data"],
-            ["demo-meta-run", "--demo-id", "demo-001"],
+            ["meta-run", "--meta-run-id", "codebase_migration_agent_1"],
             ["history"],
             ["show", "run-demo-001"],
         ]
@@ -76,6 +76,7 @@ class ParserTest(unittest.TestCase):
                 with redirect_stderr(io.StringIO()):
                     parsed = parser.parse_args(args)
                 self.assertTrue(callable(parsed.func))
+        self.assertNotIn("demo-meta-run", parser.format_help())
 
 
 class PackAndScanTest(unittest.TestCase):
@@ -266,6 +267,15 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertIn("No live LLM call is made by this demo core", output)
             self.assertIn("Wrote generation record", output)
 
+    def test_generate_prompt_is_saved_for_future_llm_call(self) -> None:
+        prompt = (cli.REPO_ROOT / "packages" / "core" / "prompts" / "generate_agent_eval_scenarios.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("small, self-contained", prompt)
+        self.assertIn("one behavior", prompt)
+        self.assertIn("Do not modify the target agent", prompt)
+
     def test_run_writes_history_record_and_history_commands_read_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             runs_root = Path(temp_dir) / "runs"
@@ -437,6 +447,7 @@ class CommandBehaviorTest(unittest.TestCase):
 
     def test_train_validate_and_promote_show_candidate_c(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
             training_root = Path(temp_dir) / "training"
             train = capture_stdout(
                 cli.cmd_train,
@@ -444,6 +455,8 @@ class CommandBehaviorTest(unittest.TestCase):
                     candidates=3,
                     training_id="train-demo-001",
                     output_root=str(training_root),
+                    agents_root=str(temp_path / "agents"),
+                    agent_name="codebase_migrator",
                     llm_provider="openai",
                     llm_model="gpt-5",
                 ),
@@ -457,6 +470,11 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(training_record["llm"]["model"], "gpt-5")
             self.assertEqual(training_record["request"]["candidates"], 3)
             self.assertEqual(training_record["candidates"][0]["candidateHarnessVersion"], "v1a")
+            self.assertEqual(
+                training_record["candidates"][0]["agentVersionPath"],
+                "agents/codebase_migrator/candidates/v1a",
+            )
+            self.assertTrue((temp_path / "agents" / "codebase_migrator" / "candidates" / "v1a").exists())
         with tempfile.TemporaryDirectory() as temp_dir:
             validation_root = Path(temp_dir) / "validations"
             validate = capture_stdout(
@@ -465,6 +483,8 @@ class CommandBehaviorTest(unittest.TestCase):
                     heldout=True,
                     validation_id="val-demo-001",
                     output_root=str(validation_root),
+                    agents_root=str(Path(temp_dir) / "agents"),
+                    agent_name="codebase_migrator",
                 ),
             )
             validation_path = validation_root / "val-demo-001" / "validation.json"
@@ -475,7 +495,12 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(validation_record["scope"], "heldout")
             self.assertEqual(validation_record["bestCandidate"], "C")
             self.assertTrue(validation_record["gateResults"]["C"]["passes"])
+            self.assertEqual(
+                validation_record["candidateAgentVersions"]["C"],
+                "agents/codebase_migrator/candidates/v1c",
+            )
         with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
             promotion_root = Path(temp_dir) / "promotions"
             promote = capture_stdout(
                 cli.cmd_promote,
@@ -483,6 +508,8 @@ class CommandBehaviorTest(unittest.TestCase):
                     if_pass=True,
                     promotion_id="prom-demo-001",
                     output_root=str(promotion_root),
+                    agents_root=str(temp_path / "agents"),
+                    agent_name="codebase_migrator",
                 ),
             )
             promotion_path = promotion_root / "prom-demo-001" / "promotion.json"
@@ -493,6 +520,10 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(promotion_record["promotedCandidate"], "C")
             self.assertEqual(promotion_record["promotedHarnessVersion"], "v2")
             self.assertTrue(promotion_record["gatePassed"])
+            self.assertEqual(promotion_record["promotedAgentVersionPath"], "agents/codebase_migrator/versions/v2")
+            manifest = json.loads((temp_path / "agents" / "codebase_migrator" / "manifest.json").read_text())
+            self.assertEqual(manifest["current_version"], "v2")
+            self.assertTrue((temp_path / "agents" / "codebase_migrator" / "versions" / "v2").exists())
 
         self.assertIn("LLM patch generator: openai/gpt-5", train)
         self.assertIn("Candidate A", train)
@@ -537,15 +568,18 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(manifest_data["harness_version"], "v2")
             self.assertIn("Wrote export manifest", export_text)
 
-    def test_demo_meta_run_writes_complete_fixture_backed_loop(self) -> None:
+    def test_meta_run_writes_complete_fixture_backed_loop(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_root = Path(temp_dir) / "demo"
+            output_root = Path(temp_dir) / "data"
+            agents_root = Path(temp_dir) / "agents"
 
             output = capture_stdout(
-                cli.cmd_demo_meta_run,
+                cli.cmd_meta_run,
                 argparse.Namespace(
-                    demo_id="demo-001",
+                    meta_run_id="codebase_migration_agent_1",
                     output_root=str(output_root),
+                    agents_root=str(agents_root),
+                    agent_name="codebase_migrator",
                     pack="code_migration",
                     scenarios=3,
                     candidates=3,
@@ -554,14 +588,22 @@ class CommandBehaviorTest(unittest.TestCase):
                 ),
             )
 
-            meta_run_root = output_root / "demo-001"
+            meta_run_root = output_root / "codebase_migration_agent_1"
             self.assertTrue((meta_run_root / "generation.json").exists())
             self.assertTrue((meta_run_root / "agent-run.json").exists())
             self.assertTrue((meta_run_root / "training.json").exists())
             self.assertTrue((meta_run_root / "validation.json").exists())
             self.assertTrue((meta_run_root / "promotion.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "original" / "agent-version.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "versions" / "v1" / "agent-version.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "candidates" / "v1a" / "agent-version.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "candidates" / "v1b" / "agent-version.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "candidates" / "v1c" / "agent-version.json").exists())
+            self.assertTrue((agents_root / "codebase_migrator" / "versions" / "v2" / "agent-version.json").exists())
+            manifest = json.loads((agents_root / "codebase_migrator" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["current_version"], "v2")
             self.assertIn("generate -> run -> train -> validate -> promote", output)
-            self.assertIn("Demo artifacts root", output)
+            self.assertIn("Meta-run artifacts root", output)
             self.assertIn("Promoted harness: v2", output)
 
 
@@ -631,6 +673,8 @@ class ContractShapeTest(unittest.TestCase):
             argparse.Namespace(
                 candidates=3,
                 training_id="train-schema-001",
+                agents_root="agents",
+                agent_name="codebase_migrator",
                 llm_provider="openai",
                 llm_model="gpt-5",
             ),
@@ -644,7 +688,12 @@ class ContractShapeTest(unittest.TestCase):
         schema = json.loads(cli.VALIDATION_RECORD_SCHEMA.read_text(encoding="utf-8"))
         data = cli.load_demo_data()
         record = cli.build_validation_record(
-            argparse.Namespace(heldout=True, validation_id="val-schema-001"),
+            argparse.Namespace(
+                heldout=True,
+                validation_id="val-schema-001",
+                agents_root="agents",
+                agent_name="codebase_migrator",
+            ),
             data,
         )
 
@@ -655,7 +704,12 @@ class ContractShapeTest(unittest.TestCase):
         schema = json.loads(cli.PROMOTION_RECORD_SCHEMA.read_text(encoding="utf-8"))
         data = cli.load_demo_data()
         record = cli.build_promotion_record(
-            argparse.Namespace(if_pass=True, promotion_id="prom-schema-001"),
+            argparse.Namespace(
+                if_pass=True,
+                promotion_id="prom-schema-001",
+                agents_root="agents",
+                agent_name="codebase_migrator",
+            ),
             data,
         )
 

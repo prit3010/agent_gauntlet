@@ -72,6 +72,12 @@ For now, generated scenarios are represented by fixed teammate 2 fixtures under
 cases land, `agx generate` should write generated scenario records through the
 pack/scenario contract.
 
+The saved future LLM prompt is:
+
+```text
+packages/core/prompts/generate_agent_eval_scenarios.md
+```
+
 Current persisted placeholder:
 
 ```text
@@ -89,8 +95,19 @@ data/training/<training_id>/training.json
 ```
 
 That record validates against `contracts/training_record.schema.json` and
-captures provider/model, requested candidate count, base harness version, and
-candidate lineage such as `v1 + Candidate C -> v1c`.
+captures provider/model, requested candidate count, base agent version, and
+candidate lineage such as `versions/v1 + Candidate C -> candidates/v1c`.
+
+Candidate target-agent versions are materialized under:
+
+```text
+agents/<agent_name>/
+  original/
+  versions/v1/
+  candidates/v1a/
+  candidates/v1b/
+  candidates/v1c/
+```
 
 `agx validate` writes deterministic gate evidence:
 
@@ -109,8 +126,14 @@ data/promotions/<promotion_id>/promotion.json
 ```
 
 That record validates against `contracts/promotion_record.schema.json` and
-captures the promoted candidate, candidate harness version, accepted harness
-version, deterministic gate decision, and promotion rationale.
+captures the promoted candidate, candidate agent version, accepted agent
+version, deterministic gate decision, and promotion rationale. Promotion writes
+the accepted version and updates the target-agent manifest:
+
+```text
+agents/<agent_name>/versions/v2/
+agents/<agent_name>/manifest.json
+```
 
 The live system should use LLM calls for:
 
@@ -137,12 +160,6 @@ Meta-run storage groups primary artifacts by meta run:
 
 ```text
 data/<meta_run_id>/
-```
-
-For the current fixture-backed CLI demo, this is nested under `data/demo-runs`:
-
-```text
-data/demo-runs/<meta_run_id>/
 ```
 
 For the single demo run, use a readable id such as
