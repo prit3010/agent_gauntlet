@@ -32,6 +32,17 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 ## Harness Version Flow
 
+The intended optimization loop is:
+
+```text
+generate -> run -> train -> validate -> promote -> generate next
+```
+
+`generate` is not implemented yet. For the current demo, generated scenarios are
+fixed teammate 2 fixtures under `packs/code_migration/scenarios/**`. Core should
+add the `generate` API after teammate 2's sample generated test cases define the
+scenario shape.
+
 `run` evaluates a harness version. `train` creates candidate variants from the
 current accepted harness:
 

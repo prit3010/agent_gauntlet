@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ AGENT_CONFIG_SCHEMA = REPO_ROOT / "contracts" / "agent_config.schema.json"
 PACKS_ROOT = REPO_ROOT / "packs"
 DEFAULT_DASHBOARD_DATA = REPO_ROOT / "apps" / "dashboard" / "public" / "demo-data.json"
 DEFAULT_EXPORT_ROOT = REPO_ROOT / "data" / "exports"
+DEFAULT_RUNS_ROOT = REPO_ROOT / "data" / "runs"
 
 
 def load_demo_data() -> dict[str, Any]:
@@ -227,6 +229,68 @@ def build_default_agent_config(project_path: Path, pack_id: str = "code_migratio
     }
 
 
+def load_agent_config(config_path: str | None) -> dict[str, Any]:
+    if config_path:
+        return json.loads(Path(config_path).read_text(encoding="utf-8"))
+    return build_default_agent_config((REPO_ROOT / "sample-migration-agent").resolve())
+
+
+def _default_run_id() -> str:
+    return datetime.now(UTC).strftime("run-%Y%m%d%H%M%SZ")
+
+
+def build_run_record(args: argparse.Namespace, data: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
+    baseline = next(harness for harness in data["harnesses"] if harness["id"] == "v1")
+    agent_config = load_agent_config(getattr(args, "agent_config", None))
+    run_id = getattr(args, "run_id", None) or _default_run_id()
+    return {
+        "runId": run_id,
+        "targetAgent": {
+            "id": agent_config["agent"]["id"],
+            "name": agent_config["agent"]["name"],
+            "repoPath": agent_config["agent"]["repo_path"],
+            "version": agent_config["versions"]["current_ref"],
+        },
+        "metaAgent": {
+            "id": "agent-gauntlet-demo-core",
+            "version": "demo-core-v1",
+        },
+        "harness": {
+            "version": baseline["id"],
+            "label": baseline["label"],
+        },
+        "pack": {
+            "id": pack["pack_id"],
+            "name": pack["name"],
+        },
+        "result": {
+            "round": args.round,
+            "scenariosRequested": args.scenarios,
+            "passRate": baseline["passRate"],
+            "readinessScore": baseline["readinessScore"],
+            "criticalFailures": baseline["criticalFailures"],
+        },
+        "logs": agent_config["logs"],
+    }
+
+
+def write_run_record(record: dict[str, Any], runs_root: Path) -> Path:
+    run_dir = runs_root / record["runId"]
+    run_dir.mkdir(parents=True, exist_ok=True)
+    output = run_dir / "run.json"
+    output.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return output
+
+
+def iter_run_records(runs_root: Path) -> list[dict[str, Any]]:
+    if not runs_root.exists():
+        return []
+    records = []
+    for run_file in sorted(runs_root.glob("*/run.json")):
+        records.append(json.loads(run_file.read_text(encoding="utf-8")))
+    return records
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     project_path = Path(args.project_path).resolve()
     context_map = build_context_map(project_path)
@@ -273,6 +337,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"API contract regressions: {baseline['apiRegressions']}")
     print(f"Test weakening attempts: {baseline['testWeakeningAttempts']}")
     print(f"Premature final answers: {baseline['prematureFinalAnswers']}")
+    runs_root_arg = getattr(args, "runs_root", None)
+    run_id_arg = getattr(args, "run_id", None)
+    if runs_root_arg or run_id_arg:
+        runs_root = Path(runs_root_arg) if runs_root_arg else DEFAULT_RUNS_ROOT
+        record = build_run_record(args, data, pack)
+        output = write_run_record(record, runs_root)
+        print(f"Wrote run record to {output}")
 
 
 def cmd_trace(args: argparse.Namespace) -> None:
@@ -354,6 +425,34 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Wrote export manifest to {output}")
 
 
+def cmd_history(args: argparse.Namespace) -> None:
+    runs_root = Path(args.runs_root)
+    records = iter_run_records(runs_root)
+    if not records:
+        print(f"No runs found in {runs_root}")
+        return
+    for record in records:
+        print(
+            f"{record['runId']} | "
+            f"{record['targetAgent']['id']} | "
+            f"harness={record['harness']['version']} | "
+            f"pass_rate={record['result']['passRate']}"
+        )
+
+
+def cmd_show(args: argparse.Namespace) -> None:
+    run_file = Path(args.runs_root) / args.run_id / "run.json"
+    if not run_file.exists():
+        raise SystemExit(f"Run not found: {args.run_id}")
+    record = json.loads(run_file.read_text(encoding="utf-8"))
+    print(f"Run: {record['runId']}")
+    print(f"Target agent: {record['targetAgent']['id']}")
+    print(f"Target version: {record['targetAgent']['version']}")
+    print(f"Meta-agent: {record['metaAgent']['version']}")
+    print(f"Harness: {record['harness']['version']}")
+    print(f"Pass rate: {record['result']['passRate']}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agx", description="Agent Gauntlet demo-core CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -371,6 +470,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--pack", default="code_migration")
     run.add_argument("--scenarios", type=int, default=12)
     run.add_argument("--round", default="baseline")
+    run.add_argument("--run-id", default=None)
+    run.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
+    run.add_argument("--agent-config", default=None)
     run.set_defaults(func=cmd_run)
 
     trace = subparsers.add_parser("trace", help="Replay evidence for one scenario.")
@@ -396,6 +498,15 @@ def build_parser() -> argparse.ArgumentParser:
     demo_data = subparsers.add_parser("demo-data", help="Write dashboard demo data JSON.")
     demo_data.add_argument("--out", default=None)
     demo_data.set_defaults(func=cmd_demo_data)
+
+    history = subparsers.add_parser("history", help="List saved Agent Gauntlet runs.")
+    history.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
+    history.set_defaults(func=cmd_history)
+
+    show = subparsers.add_parser("show", help="Show one saved Agent Gauntlet run.")
+    show.add_argument("run_id")
+    show.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
+    show.set_defaults(func=cmd_show)
 
     return parser
 

@@ -43,6 +43,20 @@ Please provide or confirm:
 - exact file-output log schema, if Migration Pilot already emits one
 - scenario fields that should be copied into run history
 - validator fields that should appear in promotion evidence
+- sample generated test cases that will define the future `agx generate` API
+
+## 3a. Pending Generate API
+
+Core does not implement `generate` yet. The intended loop is:
+
+```text
+generate -> run -> train -> validate -> promote -> generate next
+```
+
+For now, generated scenarios are represented by fixed teammate 2 fixtures under
+`packs/code_migration/scenarios/**`. After teammate 2's sample generated test
+cases land, core should expose an `agx generate` command/API that writes a
+generated scenario record and hands it to the pack/scenario contract.
 
 ## 4. Teammate 3 Dashboard Requests
 

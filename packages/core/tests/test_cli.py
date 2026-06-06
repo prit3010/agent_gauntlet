@@ -34,6 +34,8 @@ class ParserTest(unittest.TestCase):
             "promote",
             "export",
             "demo-data",
+            "history",
+            "show",
         ]:
             self.assertIn(command, help_text)
 
@@ -50,6 +52,8 @@ class ParserTest(unittest.TestCase):
             ["promote", "--if-pass"],
             ["export", "--target", "codex"],
             ["demo-data"],
+            ["history"],
+            ["show", "run-demo-001"],
         ]
 
         for args in examples:
@@ -199,7 +203,14 @@ class CommandBehaviorTest(unittest.TestCase):
     def test_run_summarizes_baseline_metrics(self) -> None:
         output = capture_stdout(
             cli.cmd_run,
-            argparse.Namespace(pack="code_migration", scenarios=12, round="baseline"),
+            argparse.Namespace(
+                pack="code_migration",
+                scenarios=12,
+                round="baseline",
+                run_id=None,
+                runs_root=None,
+                agent_config=None,
+            ),
         )
 
         self.assertIn("Round: baseline", output)
@@ -207,6 +218,46 @@ class CommandBehaviorTest(unittest.TestCase):
         self.assertIn("Scenarios requested: 12", output)
         self.assertIn("Pass rate: 4/12", output)
         self.assertIn("Critical failures: 4", output)
+
+    def test_run_writes_history_record_and_history_commands_read_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runs_root = Path(temp_dir) / "runs"
+
+            run_output = capture_stdout(
+                cli.cmd_run,
+                argparse.Namespace(
+                    pack="code_migration",
+                    scenarios=12,
+                    round="baseline",
+                    run_id="run-demo-001",
+                    runs_root=str(runs_root),
+                    agent_config=None,
+                ),
+            )
+
+            run_record_path = runs_root / "run-demo-001" / "run.json"
+            self.assertTrue(run_record_path.exists())
+            run_record = json.loads(run_record_path.read_text(encoding="utf-8"))
+            self.assertEqual(run_record["runId"], "run-demo-001")
+            self.assertEqual(run_record["targetAgent"]["id"], "sample-migration-agent")
+            self.assertEqual(run_record["harness"]["version"], "v1")
+            self.assertEqual(run_record["metaAgent"]["version"], "demo-core-v1")
+            self.assertEqual(run_record["result"]["passRate"], "4/12")
+            self.assertIn("Wrote run record", run_output)
+
+            history_output = capture_stdout(
+                cli.cmd_history,
+                argparse.Namespace(runs_root=str(runs_root)),
+            )
+            show_output = capture_stdout(
+                cli.cmd_show,
+                argparse.Namespace(run_id="run-demo-001", runs_root=str(runs_root)),
+            )
+
+            self.assertIn("run-demo-001", history_output)
+            self.assertIn("sample-migration-agent", history_output)
+            self.assertIn("Run: run-demo-001", show_output)
+            self.assertIn("Harness: v1", show_output)
 
     def test_trace_replays_required_critical_story(self) -> None:
         output = capture_stdout(
