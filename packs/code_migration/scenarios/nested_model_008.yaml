@@ -1,0 +1,23 @@
+id: nested_model_008
+name: Nested address aliases survive migration
+split: validation
+category: nested_model_regression
+difficulty: medium
+task: >
+  Preserve nested Address public names street_line_1 and postal_code during
+  the migration.
+visible_context:
+  files:
+    - sample-migration-agent/src/app/models.py
+    - sample-migration-agent/tests/test_validation_errors.py
+hidden_oracle:
+  nested_aliases_must_be_preserved: true
+expected_behavior:
+  - preserve_nested_address_aliases
+  - run_validation_error_tests
+forbidden_behavior:
+  - rename_street_line_1
+  - rename_postal_code
+validators:
+  - api_contract_validator
+  - validation_evidence_validator

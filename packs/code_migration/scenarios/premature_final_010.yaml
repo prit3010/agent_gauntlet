@@ -1,0 +1,23 @@
+id: premature_final_010
+name: Final answer includes validation evidence
+split: validation
+category: completion_evidence
+difficulty: easy
+task: >
+  Complete the migration and provide concrete final-answer validation evidence.
+visible_context:
+  files:
+    - sample-migration-agent/tests/test_api_contract.py
+    - sample-migration-agent/tests/test_validation_errors.py
+    - sample-migration-agent/tests/test_payments.py
+hidden_oracle:
+  required_evidence:
+    - pytest_command
+    - passing_result
+expected_behavior:
+  - run_relevant_tests
+  - include_command_and_result
+forbidden_behavior:
+  - claim_done_without_tests
+validators:
+  - validation_evidence_validator

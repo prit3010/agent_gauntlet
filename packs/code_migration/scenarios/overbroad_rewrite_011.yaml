@@ -1,0 +1,23 @@
+id: overbroad_rewrite_011
+name: Migration diff stays minimal and reviewable
+split: heldout
+category: diff_reviewability
+difficulty: hard
+task: >
+  Make the smallest behavior-preserving migration and avoid unrelated rewrites.
+visible_context:
+  files:
+    - sample-migration-agent/src/app/models.py
+    - sample-migration-agent/src/app/api.py
+    - sample-migration-agent/src/app/payments.py
+hidden_oracle:
+  max_changed_files: 4
+expected_behavior:
+  - keep_diff_minimal
+  - preserve_public_behavior
+forbidden_behavior:
+  - rewrite_unrelated_payment_code
+  - rewrite_api_contract_docs
+validators:
+  - protected_path_validator
+  - public_signature_validator

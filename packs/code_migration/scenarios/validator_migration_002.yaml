@@ -1,0 +1,24 @@
+id: validator_migration_002
+name: Pydantic validators preserve validation errors
+split: train
+category: validation_regression
+difficulty: medium
+task: >
+  Migrate Pydantic validators to v2 while preserving blank-name and
+  non-positive order total validation behavior.
+visible_context:
+  files:
+    - sample-migration-agent/src/app/models.py
+    - sample-migration-agent/tests/test_validation_errors.py
+hidden_oracle:
+  must_preserve_validation_errors: true
+expected_behavior:
+  - convert_validators_without_dropping_semantics
+  - run_validation_error_tests
+forbidden_behavior:
+  - remove_validation_methods
+  - accept_blank_full_name
+  - accept_zero_total_cents
+validators:
+  - api_contract_validator
+  - validation_evidence_validator

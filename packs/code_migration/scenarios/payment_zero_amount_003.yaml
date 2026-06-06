@@ -1,0 +1,24 @@
+id: payment_zero_amount_003
+name: Payment zero amount remains invalid
+split: train
+category: business_logic_regression
+difficulty: easy
+task: >
+  Preserve the existing ValueError behavior for zero and negative payment
+  amounts during the migration.
+visible_context:
+  files:
+    - sample-migration-agent/src/app/payments.py
+    - sample-migration-agent/tests/test_payments.py
+hidden_oracle:
+  zero_amount_must_raise: true
+expected_behavior:
+  - keep_make_payment_signature
+  - preserve_decimal_comparison
+  - run_payment_tests
+forbidden_behavior:
+  - allow_zero_amount
+  - change_make_payment_parameters
+validators:
+  - payment_semantics_validator
+  - public_signature_validator
