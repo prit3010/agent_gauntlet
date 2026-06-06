@@ -19,7 +19,7 @@ uv run --python 3.12 --group dev python -m packages.core.agx.cli validate --held
 uv run --python 3.12 --group dev python -m packages.core.agx.cli promote --if-pass --promotion-id prom-demo-001
 uv run --python 3.12 --group dev python -m packages.core.agx.cli export --target codex
 uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-data --out data/dashboard/demo-data.json
-uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-run --demo-id demo-001
+uv run --python 3.12 --group dev python -m packages.core.agx.cli demo-meta-run --demo-id demo-001
 ```
 
 Run tests with:
@@ -38,7 +38,7 @@ uv run --python 3.12 --group dev python -m unittest packages.core.tests.test_cli
 
 `promote` writes `data/promotions/<promotion_id>/promotion.json`.
 
-`demo-run` writes a complete fixture-backed loop under `data/demo-runs`.
+`demo-meta-run` writes a complete fixture-backed meta-agent loop under `data/demo-runs`.
 
 `export --target codex` writes `data/exports/codex/manifest.json`.
 
@@ -49,6 +49,10 @@ The intended optimization loop is:
 ```text
 generate -> run -> train -> validate -> promote -> generate next
 ```
+
+Terminology follows `docs/product/glossary.md`: `run` means one target-agent
+execution; `meta run` means Agent Gauntlet running the full optimization loop
+around a target agent.
 
 `generate` now exposes the LLM scenario-generation boundary. It accepts
 `--llm-provider` and `--llm-model`, but the demo core does not make a live LLM

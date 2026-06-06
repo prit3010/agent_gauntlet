@@ -13,4 +13,5 @@ build/
 coverage/
 data/*.db
 data/*.sqlite
+data/demo-runs/
 apps/dashboard/public/demo-data.json

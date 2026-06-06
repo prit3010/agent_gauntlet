@@ -120,6 +120,16 @@ Please plan for dashboard fields that show:
 - candidate lineage such as `v1 + Candidate C -> v1c`
 - promoted harness version such as `v1c -> v2`
 
+Future storage should group primary artifacts by meta run:
+
+```text
+data/<meta_run_id>/
+```
+
+For the single demo run, use a readable id such as
+`codebase_migration_agent_1`. A `run` is one target-agent execution; a `meta
+run` is Agent Gauntlet running the full optimization loop around that agent.
+
 ## 5. Open Product Question
 
 The current core stores config as JSON because the repo has no YAML dependency. If the product wants `agent-gauntlet.yaml`, we should add a YAML parser/writer intentionally rather than hand-rolling it.

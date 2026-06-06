@@ -36,7 +36,7 @@ class ParserTest(unittest.TestCase):
             "promote",
             "export",
             "demo-data",
-            "demo-run",
+            "demo-meta-run",
             "history",
             "show",
         ]:
@@ -66,7 +66,7 @@ class ParserTest(unittest.TestCase):
             ["promote", "--if-pass", "--promotion-id", "prom-demo-001"],
             ["export", "--target", "codex"],
             ["demo-data"],
-            ["demo-run", "--demo-id", "demo-001"],
+            ["demo-meta-run", "--demo-id", "demo-001"],
             ["history"],
             ["show", "run-demo-001"],
         ]
@@ -537,12 +537,12 @@ class CommandBehaviorTest(unittest.TestCase):
             self.assertEqual(manifest_data["harness_version"], "v2")
             self.assertIn("Wrote export manifest", export_text)
 
-    def test_demo_run_writes_complete_fixture_backed_loop(self) -> None:
+    def test_demo_meta_run_writes_complete_fixture_backed_loop(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_root = Path(temp_dir) / "demo"
 
             output = capture_stdout(
-                cli.cmd_demo_run,
+                cli.cmd_demo_meta_run,
                 argparse.Namespace(
                     demo_id="demo-001",
                     output_root=str(output_root),
