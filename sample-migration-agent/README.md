@@ -14,3 +14,17 @@ PYTHONPATH=src pytest tests/test_validation_errors.py -q
 PYTHONPATH=src pytest tests/test_payments.py -q
 PYTHONPATH=src pytest tests/test_api_contract.py tests/test_validation_errors.py tests/test_payments.py -q
 ```
+
+Run the self-contained sample check from the repo root:
+
+```bash
+python3 sample-migration-agent/run_sample_migration.py
+```
+
+Or run it directly from this directory:
+
+```bash
+./run_sample_migration.py
+```
+
+The script sets up its own import path, checks the API aliases, validation behavior, and payment semantics, then exits nonzero if any invariant changes.
